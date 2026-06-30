@@ -191,9 +191,10 @@ function lookAtCard(game, socket, cardIndex) {
 		socket.emit('error', 'Invalid card');
 		return;
 	}
-	player.knownCards[cardIndex] = true;
+	player.knownCards[cardIndex] = false;
 	player.looked = true;
 	log(game, `${player.name} looked at a card`);
+	socket.emit('peekReveal', { cardIndex, card: player.hand[cardIndex], duration: 3000 });
 	if (game.players.every((p) => p.looked)) {
 		game.status = 'playing';
 		log(game, 'All players ready. First turn begins.');
@@ -340,7 +341,7 @@ function swapCard(game, socket, cardIndex) {
 	}
 	const oldCard = player.hand[cardIndex];
 	player.hand[cardIndex] = game.drawnCard;
-	player.knownCards[cardIndex] = true;
+	player.knownCards[cardIndex] = false;
 	game.drawnCard = null;
 	game.drawnAction = null;
 	if (oldCard) game.discardPile.push(oldCard);
@@ -367,11 +368,13 @@ function peekCard(game, socket, cardIndex) {
 		socket.emit('error', 'Invalid card');
 		return;
 	}
+	const peekedCard = game.drawnCard;
 	game.discardPile.push(game.drawnCard);
 	game.drawnCard = null;
 	game.drawnAction = null;
-	player.knownCards[cardIndex] = true;
+	player.knownCards[cardIndex] = false;
 	log(game, `${player.name} peeked at a card`);
+	player.socket.emit('peekReveal', { cardIndex, card: peekedCard, duration: 3000 });
 	finishTurnWithKeeshWindow(game, player.id);
 }
 
@@ -666,6 +669,7 @@ function selectSnapGiveCard(game, socket, cardIndex) {
 	target.knownCards[choice.targetSlotIndex] = false;
 	game.pendingChoice = null;
 	log(game, `${snapper.name} gave a card to ${target.name}`);
+	checkAutomaticKeesh(game, snapper);
 	game.currentPlayerIndex = choice.previousPlayerIndex;
 	if (choice.savedKeeshWindow && choice.savedKeeshWindow.expiresAt > Date.now()) {
 		game.keeshWindow = choice.savedKeeshWindow;

@@ -71,6 +71,7 @@
 	let client: Socket | null = $state(null);
 	let selectMode: 'peek' | 'spy' | null = $state(null);
 	let spyResult: { playerId: string; cardIndex: number; card: Card } | null = $state(null);
+	let peekReveal: { cardIndex: number; card: Card } | null = $state(null);
 
 	onMount(async () => {
 		const socket = await getSocket();
@@ -91,6 +92,10 @@
 		});
 		socket.on('spyResult', (r) => {
 			spyResult = r;
+		});
+		socket.on('peekReveal', (r: { cardIndex: number; card: Card; duration: number }) => {
+			peekReveal = { cardIndex: r.cardIndex, card: r.card };
+			setTimeout(() => { peekReveal = null; }, r.duration);
 		});
 		socket.on('error', (msg: string) => {
 			alert(msg);
@@ -585,8 +590,8 @@
 						>
 							<span class="text-xs text-white/50">{i + 1}</span>
 						</div>
-					{:else if gameState.myKnownCards[i]}
-						<CardComponent card={card} onclick={() => handleOwnCardClick(i)} />
+					{:else if peekReveal?.cardIndex === i}
+						<CardComponent card={peekReveal.card} onclick={() => handleOwnCardClick(i)} />
 					{:else}
 						<button
 							onclick={() => handleOwnCardClick(i)}

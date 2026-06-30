@@ -135,9 +135,31 @@ function broadcastState(game) {
 
 function addPlayer(game, socket, playerName) {
 	if (game.players.find((p) => p.id === socket.id)) return;
+	const name = playerName || `Player ${game.players.length + 1}`;
+	if (game.status === 'waiting' && game.players.find((p) => p.name === name)) {
+		socket.emit('nameTaken', { name });
+		return;
+	}
+	if (game.status !== 'waiting') {
+		const existing = game.players.find((p) => p.name === name);
+		if (existing) {
+			const oldId = existing.id;
+			socketRoom.delete(oldId);
+			existing.id = socket.id;
+			existing.socket = socket;
+			if (game.totalScores[socket.id] === undefined && game.totalScores[oldId] !== undefined) {
+				game.totalScores[socket.id] = game.totalScores[oldId];
+				delete game.totalScores[oldId];
+			}
+			socket.join(game.id);
+			socketRoom.set(socket.id, game.id);
+			broadcastState(game);
+			return;
+		}
+	}
 	game.players.push({
 		id: socket.id,
-		name: playerName || `Player ${game.players.length + 1}`,
+		name,
 		hand: [],
 		knownCards: [],
 		looked: false,

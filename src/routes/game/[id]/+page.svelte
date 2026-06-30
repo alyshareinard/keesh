@@ -74,6 +74,8 @@
 	let selectMode: 'peek' | 'spy' | null = $state(null);
 	let spyResult: { playerId: string; cardIndex: number; card: Card } | null = $state(null);
 	let peekReveal: { cardIndex: number; card: Card } | null = $state(null);
+	let nameTaken = $state(false);
+	let nameInput = $state('');
 
 	onMount(async () => {
 		const socket = await getSocket();
@@ -98,6 +100,10 @@
 		socket.on('peekReveal', (r: { cardIndex: number; card: Card; duration: number }) => {
 			peekReveal = { cardIndex: r.cardIndex, card: r.card };
 			setTimeout(() => { peekReveal = null; }, r.duration);
+		});
+		socket.on('nameTaken', () => {
+			nameTaken = true;
+			nameInput = playerName;
 		});
 		socket.on('error', (msg: string) => {
 			alert(msg);
@@ -180,6 +186,12 @@
 	function leaveRoom() {
 		client?.emit('leave');
 		goto('/');
+	}
+
+	function rejoinWithName() {
+		if (!nameInput.trim()) return;
+		nameTaken = false;
+		client?.emit('join', { roomId, playerName: nameInput.trim() });
 	}
 
 	function handleOwnCardClick(cardIndex: number) {
@@ -344,7 +356,22 @@
 	</header>
 
 	<main class="flex-1 flex flex-col items-center p-4 gap-6 overflow-auto">
-		{#if !gameState}
+		{#if nameTaken}
+			<div class="bg-black/30 rounded-2xl p-8 max-w-sm w-full text-center flex flex-col gap-4">
+				<p class="text-red-300 font-semibold">That name is already taken in this room.</p>
+				<p class="text-emerald-100 text-sm">Choose a different name to join:</p>
+				<input
+					bind:value={nameInput}
+					onkeydown={(e) => e.key === 'Enter' && rejoinWithName()}
+					class="w-full px-3 py-2 rounded-lg bg-black/20 border border-white/20 placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+					placeholder="Your name"
+				/>
+				<button
+					onclick={rejoinWithName}
+					class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg font-semibold transition-colors touch-manipulation"
+				>Join as {nameInput || '…'}</button>
+			</div>
+		{:else if !gameState}
 			<p class="text-emerald-100">Connecting...</p>
 		{:else if gameState.status === 'waiting'}
 			<div class="text-center w-full max-w-sm">
@@ -424,7 +451,7 @@
 			{/if}
 
 			<div class="flex flex-wrap gap-4 justify-center">
-				{#each gameState.players as player}
+				{#each [...gameState.players].sort((a, b) => a.id === gameState!.myPlayerId ? 1 : b.id === gameState!.myPlayerId ? -1 : 0) as player}
 					<div
 						class="bg-black/20 rounded-xl p-4 min-w-[12rem] {player.isCurrent
 							? 'ring-2 ring-emerald-400'

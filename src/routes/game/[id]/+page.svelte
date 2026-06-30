@@ -25,10 +25,12 @@
 		| { type: 'spy'; playerId: string; targetPlayerId: string | null; targetCardIndex: number | null }
 		| {
 				type: 'blindSwap';
+				playerId: string;
 				ownCardIndex: number | null;
 		  }
 		| {
 				type: 'lookyLookySwap';
+				playerId: string;
 				ownCardIndex: number | null;
 				targetPlayerId?: string | null;
 				targetCardIndex?: number | null;
@@ -36,6 +38,7 @@
 		  }
 		| {
 				type: 'snapGive';
+				playerId: string;
 				targetPlayerId: string;
 				targetSlotIndex: number;
 				previousPlayerIndex?: number;
@@ -65,6 +68,7 @@
 		totalScores: Record<string, number>;
 		matchWinnerIds: string[] | null;
 		keeshWindow: KeeshWindow | null;
+		revealedHands: { id: string; name: string; hand: (Card | null)[] }[] | null;
 		log: string[];
 	};
 
@@ -80,6 +84,7 @@
 	let nameTaken = $state(false);
 	let nameInput = $state('');
 	let spyNotify: { cardIndex: number; spiedBy: string } | null = $state(null);
+	let swapHighlights: { playerId: string; cardIndex: number }[] = $state([]);
 
 	onMount(async () => {
 		const socket = await getSocket();
@@ -117,6 +122,10 @@
 			spyNotify = r;
 			setTimeout(() => { spyNotify = null; }, 4000);
 		});
+		socket.on('swapHighlight', (slots: { playerId: string; cardIndex: number }[]) => {
+			swapHighlights = slots;
+			setTimeout(() => { swapHighlights = []; }, 2000);
+		});
 		socket.on('error', (msg: string) => {
 			alert(msg);
 		});
@@ -131,6 +140,7 @@
 		client.off('peekReveal');
 		client.off('nameTaken');
 		client.off('spyNotify');
+		client.off('swapHighlight');
 		client.off('error');
 	});
 
@@ -234,6 +244,10 @@
 			selectSnapGiveCard(cardIndex);
 			return;
 		}
+		if (choice?.type === 'peek') {
+			peek(cardIndex);
+			return;
+		}
 		if (choice?.type === 'blindSwap' && choice.ownCardIndex === null) {
 			selectSwapOwnCard(cardIndex);
 			return;
@@ -243,11 +257,6 @@
 			return;
 		}
 		if (g.status !== 'playing') return;
-		if (selectMode === 'peek') {
-			peek(cardIndex);
-			selectMode = null;
-			return;
-		}
 		if (g.drawnCard && g.currentPlayerId === g.myPlayerId) {
 			swap(cardIndex);
 		} else {
@@ -260,6 +269,10 @@
 		if (!g || g.status !== 'playing') return;
 		const choice = g.pendingChoice;
 		if (choice?.type === 'snapGive') return;
+		if (choice?.type === 'spy') {
+			spy(playerId, cardIndex);
+			return;
+		}
 		if (choice?.type === 'blindSwap') {
 			if (choice.ownCardIndex !== null) {
 				selectSwapOpponentCard(playerId, cardIndex);
@@ -453,6 +466,27 @@
 							</div>
 						{/each}
 				</div>
+				{#if gameState.revealedHands}
+					<div class="mt-4 w-full">
+						<p class="text-emerald-200 text-sm text-center mb-3 uppercase tracking-wider">Final hands</p>
+						<div class="flex flex-wrap gap-4 justify-center">
+							{#each gameState.revealedHands as rh}
+								<div class="bg-black/20 rounded-xl p-3">
+									<p class="font-semibold mb-2 text-sm">{rh.name}{rh.id === gameState.myPlayerId ? ' (you)' : ''}</p>
+									<div class="flex flex-wrap gap-1">
+										{#each rh.hand as card}
+											{#if card}
+												<CardComponent {card} />
+											{:else}
+												<div class="w-10 h-14 sm:w-12 sm:h-16 rounded border border-white/10 bg-black/10"></div>
+											{/if}
+										{/each}
+									</div>
+								</div>
+							{/each}
+						</div>
+					</div>
+				{/if}
 				{#if gameState.matchWinnerIds && gameState.matchWinnerIds.length > 0}
 					<button
 						onclick={newMatch}
@@ -509,7 +543,7 @@
 																		{:else}
 										<button
 											onclick={() => handleOwnCardClick(i)}
-											class="w-10 h-14 sm:w-12 sm:h-16 bg-blue-700 rounded border border-white/20 hover:bg-blue-500 transition-colors flex flex-col items-center justify-center touch-manipulation"
+											class="w-10 h-14 sm:w-12 sm:h-16 bg-blue-700 rounded border hover:bg-blue-500 transition-all flex flex-col items-center justify-center touch-manipulation {swapHighlights.some((h) => h.playerId === gameState!.myPlayerId && h.cardIndex === i) ? 'border-orange-400 ring-2 ring-orange-400' : 'border-white/20'}"
 											aria-label="Card {i + 1}"
 										>
 											<span class="text-xl">🂠</span>
@@ -524,7 +558,7 @@
 									{#if occupied}
 										<button
 											onclick={() => handleOpponentCardClick(player.id, i)}
-											class="w-10 h-14 sm:w-12 sm:h-16 bg-blue-700 rounded border border-white/20 hover:bg-blue-500 transition-colors touch-manipulation"
+											class="w-10 h-14 sm:w-12 sm:h-16 bg-blue-700 rounded border hover:bg-blue-500 transition-all touch-manipulation {swapHighlights.some((h) => h.playerId === player.id && h.cardIndex === i) ? 'border-orange-400 ring-2 ring-orange-400' : 'border-white/20'}"
 											aria-label="Card {i + 1} from {player.name}"
 										></button>
 									{:else}
@@ -621,14 +655,28 @@
 						</button>
 					</div>
 				{/if}
-			{:else if gameState.pendingChoice && gameState.pendingChoice.type === 'peek' && gameState.pendingChoice.playerId === gameState.myPlayerId}
+			{:else if gameState.pendingChoice?.playerId === gameState.myPlayerId && gameState.pendingChoice.type === 'peek'}
 				<div class="flex flex-col items-center gap-2 bg-black/20 rounded-xl p-4 max-w-md w-full">
 					<p class="text-emerald-100 font-semibold">Peek: click one of your cards to look at it</p>
 					<button onclick={skipAction} class="px-3 py-1 text-sm bg-gray-600 hover:bg-gray-500 rounded transition-colors touch-manipulation">Skip</button>
 				</div>
-			{:else if gameState.pendingChoice && gameState.pendingChoice.type === 'spy' && gameState.pendingChoice.playerId === gameState.myPlayerId}
+			{:else if gameState.pendingChoice?.playerId === gameState.myPlayerId && gameState.pendingChoice.type === 'spy'}
 				<div class="flex flex-col items-center gap-2 bg-black/20 rounded-xl p-4 max-w-md w-full">
 					<p class="text-emerald-100 font-semibold">Spy: click an opponent's card to peek at it</p>
+					<button onclick={skipAction} class="px-3 py-1 text-sm bg-gray-600 hover:bg-gray-500 rounded transition-colors touch-manipulation">Skip</button>
+				</div>
+			{:else if gameState.pendingChoice?.playerId === gameState.myPlayerId && gameState.pendingChoice.type === 'blindSwap'}
+				<div class="flex flex-col items-center gap-2 bg-black/20 rounded-xl p-4 max-w-md w-full">
+					<p class="text-emerald-100 font-semibold">
+						{gameState.pendingChoice.ownCardIndex === null ? 'Blind swap: click one of your cards to swap' : 'Now click an opponent\'s card'}
+					</p>
+					<button onclick={skipAction} class="px-3 py-1 text-sm bg-gray-600 hover:bg-gray-500 rounded transition-colors touch-manipulation">Skip</button>
+				</div>
+			{:else if gameState.pendingChoice?.playerId === gameState.myPlayerId && gameState.pendingChoice.type === 'lookyLookySwap' && !gameState.pendingChoice.targetCard}
+				<div class="flex flex-col items-center gap-2 bg-black/20 rounded-xl p-4 max-w-md w-full">
+					<p class="text-emerald-100 font-semibold">
+						{gameState.pendingChoice.ownCardIndex === null ? 'Looky-looky: click one of your cards, then an opponent\'s' : 'Now click an opponent\'s card to reveal'}
+					</p>
 					<button onclick={skipAction} class="px-3 py-1 text-sm bg-gray-600 hover:bg-gray-500 rounded transition-colors touch-manipulation">Skip</button>
 				</div>
 			{:else if !gameState.pendingChoice}

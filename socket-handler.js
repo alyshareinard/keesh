@@ -4,11 +4,20 @@ import { Server } from 'socket.io';
 const SUITS = ['hearts', 'diamonds', 'clubs', 'spades'];
 const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
 const HAND_SIZE = 4;
-const DECK_COUNT = 2;
 
 function createDeck() {
-	const single = SUITS.flatMap((suit) => RANKS.map((rank) => ({ suit, rank })));
-	return Array.from({ length: DECK_COUNT }, () => single).flat();
+	return SUITS.flatMap((suit) => RANKS.map((rank) => ({ suit, rank })));
+}
+
+function buildDeck(playerCount) {
+	const single = createDeck();
+	if (playerCount >= 7) {
+		return [...single, ...single];
+	} else if (playerCount === 6) {
+		const extra = single.filter((c) => c.suit === 'spades' || c.suit === 'diamonds');
+		return [...single, ...extra];
+	}
+	return single;
 }
 
 function shuffle(array) {
@@ -133,6 +142,9 @@ function getStateForPlayer(game, playerId) {
 		totalScores: game.totalScores,
 		matchWinnerIds: game.matchWinnerIds,
 		keeshWindow: game.keeshWindow,
+		revealedHands: game.status === 'finished'
+			? game.players.map((p) => ({ id: p.id, name: p.name, hand: p.hand }))
+			: null,
 		log: game.log
 	};
 }
@@ -140,6 +152,12 @@ function getStateForPlayer(game, playerId) {
 function broadcastState(game) {
 	for (const player of game.players) {
 		player.socket.emit('state', getStateForPlayer(game, player.id));
+	}
+}
+
+function broadcastSwapHighlight(game, slots) {
+	for (const player of game.players) {
+		player.socket.emit('swapHighlight', slots);
 	}
 }
 
@@ -193,7 +211,7 @@ function startGame(game, socket) {
 		socket.emit('error', 'Need at least 2 players');
 		return;
 	}
-	game.deck = shuffle(createDeck());
+	game.deck = shuffle(buildDeck(game.players.length));
 	for (const p of game.players) {
 		p.hand = game.deck.splice(0, HAND_SIZE);
 		p.knownCards = new Array(HAND_SIZE).fill(false);
@@ -417,6 +435,7 @@ function swapCard(game, socket, cardIndex) {
 	game.drawnAction = null;
 	if (oldCard) game.discardPile.push(oldCard);
 	log(game, `${player.name} swapped a card`);
+	broadcastSwapHighlight(game, [{ playerId: player.id, cardIndex }]);
 	finishTurnWithKeeshWindow(game, player.id);
 }
 
@@ -597,6 +616,7 @@ function selectSwapOpponentCard(game, socket, targetPlayerId, cardIndex) {
 		target.knownCards[cardIndex] = false;
 		game.pendingChoice = null;
 		log(game, `${player.name} blind-swapped a card with ${target.name}`);
+		broadcastSwapHighlight(game, [{ playerId: player.id, cardIndex: ownIndex }, { playerId: target.id, cardIndex }]);
 		nextPlayer(game);
 		broadcastState(game);
 		return;
@@ -635,10 +655,12 @@ function resolveLookyLookySwap(game, socket, swap) {
 		target.hand[targetCardIndex] = playerCard;
 		target.knownCards[targetCardIndex] = false;
 		log(game, `${player.name} completed the looky-looky swap`);
+		game.pendingChoice = null;
+		broadcastSwapHighlight(game, [{ playerId: player.id, cardIndex: ownCardIndex }, { playerId: target.id, cardIndex: targetCardIndex }]);
 	} else {
 		log(game, `${player.name} declined the looky-looky swap`);
+		game.pendingChoice = null;
 	}
-	game.pendingChoice = null;
 	nextPlayer(game);
 	broadcastState(game);
 }
@@ -853,7 +875,7 @@ function startNextRound(game, resetTotals = false) {
 		}
 		game.matchWinnerIds = null;
 	}
-	game.deck = shuffle(createDeck());
+	game.deck = shuffle(buildDeck(game.players.length));
 	for (const p of game.players) {
 		p.hand = game.deck.splice(0, HAND_SIZE);
 		p.knownCards = new Array(HAND_SIZE).fill(false);

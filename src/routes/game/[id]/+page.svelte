@@ -85,6 +85,7 @@
 	let nameInput = $state('');
 	let spyNotify: { cardIndex: number; spiedBy: string } | null = $state(null);
 	let swapHighlights: { playerId: string; cardIndex: number }[] = $state([]);
+	let keeshCalledBy: string | null = $state(null);
 
 	onMount(async () => {
 		const socket = await getSocket();
@@ -126,6 +127,10 @@
 			swapHighlights = slots;
 			setTimeout(() => { swapHighlights = []; }, 2000);
 		});
+		socket.on('keeshCalled', (r: { callerName: string }) => {
+			keeshCalledBy = r.callerName;
+			setTimeout(() => { keeshCalledBy = null; }, 6000);
+		});
 		socket.on('error', (msg: string) => {
 			alert(msg);
 		});
@@ -141,6 +146,7 @@
 		client.off('nameTaken');
 		client.off('spyNotify');
 		client.off('swapHighlight');
+		client.off('keeshCalled');
 		client.off('error');
 	});
 
@@ -724,6 +730,22 @@
 		<div class="flex flex-col items-center gap-4 bg-blue-900 rounded-2xl p-8 shadow-2xl" onclick={(e) => e.stopPropagation()}>
 			<p class="font-semibold text-lg">👀 {spyNotify.spiedBy} looked at your card #{spyNotify.cardIndex + 1}</p>
 			<p class="text-sm text-blue-200">Tap anywhere to dismiss</p>
+		</div>
+	</div>
+{/if}
+
+{#if keeshCalledBy}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onclick={() => (keeshCalledBy = null)}>
+		<div class="flex flex-col items-center gap-4 bg-amber-900 border-2 border-amber-400 rounded-2xl p-8 shadow-2xl max-w-sm w-full mx-4" onclick={(e) => e.stopPropagation()}>
+			<p class="text-4xl">🃏</p>
+			<p class="font-bold text-2xl text-amber-200 text-center">{keeshCalledBy} called Keesh!</p>
+			<p class="text-sm text-amber-300 text-center">One round left — everyone plays until it gets back to {keeshCalledBy}</p>
+			<button
+				onclick={() => (keeshCalledBy = null)}
+				class="mt-2 px-5 py-2 bg-amber-600 hover:bg-amber-500 rounded-lg font-semibold transition-colors touch-manipulation"
+			>
+				Got it
+			</button>
 		</div>
 	</div>
 {/if}

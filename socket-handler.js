@@ -492,6 +492,10 @@ function spyCard(game, socket, targetPlayerId, cardIndex) {
 		socket.emit('error', 'Invalid spy target');
 		return;
 	}
+	if (game.keeshCallerId === target.id) {
+		socket.emit('error', "Can't spy on the keesh caller's cards");
+		return;
+	}
 	if (!viaChoice) {
 		game.discardPile.push(game.drawnCard);
 		game.drawnCard = null;
@@ -604,6 +608,10 @@ function selectSwapOpponentCard(game, socket, targetPlayerId, cardIndex) {
 	const target = game.players.find((p) => p.id === targetPlayerId);
 	if (!target || cardIndex < 0 || cardIndex >= target.hand.length || target.hand[cardIndex] === null) {
 		socket.emit('error', 'Invalid swap target');
+		return;
+	}
+	if (game.keeshCallerId === target.id) {
+		socket.emit('error', "Can't swap with the keesh caller's cards");
 		return;
 	}
 	const ownIndex = game.pendingChoice.ownCardIndex;
@@ -797,6 +805,9 @@ function _callKeesh(game, player) {
 	game.keeshWindow = null;
 	game.keeshCallerId = player.id;
 	log(game, `${player.name} called keesh!`);
+	for (const p of game.players) {
+		p.socket.emit('keeshCalled', { callerName: player.name });
+	}
 	nextPlayer(game);
 	broadcastState(game);
 }

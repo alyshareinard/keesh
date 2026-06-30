@@ -14,12 +14,15 @@
 		handSlots: boolean[];
 		looked: boolean;
 		isCurrent: boolean;
+		disconnected: boolean;
 		score: number | null;
 	};
 
 	type DrawnAction = 'peek' | 'spy' | 'blindSwap' | 'lookyLookySwap' | null;
 
 	type PendingChoice =
+		| { type: 'peek'; playerId: string; cardIndex: number | null }
+		| { type: 'spy'; playerId: string; targetPlayerId: string | null; targetCardIndex: number | null }
 		| {
 				type: 'blindSwap';
 				ownCardIndex: number | null;
@@ -76,6 +79,7 @@
 	let peekReveal: { cardIndex: number; card: Card } | null = $state(null);
 	let nameTaken = $state(false);
 	let nameInput = $state('');
+	let spyNotify: { cardIndex: number; spiedBy: string } | null = $state(null);
 
 	onMount(async () => {
 		const socket = await getSocket();
@@ -109,6 +113,10 @@
 			nameTaken = true;
 			nameInput = playerName;
 		});
+		socket.on('spyNotify', (r: { cardIndex: number; spiedBy: string }) => {
+			spyNotify = r;
+			setTimeout(() => { spyNotify = null; }, 4000);
+		});
 		socket.on('error', (msg: string) => {
 			alert(msg);
 		});
@@ -122,6 +130,7 @@
 		client.off('spyResult');
 		client.off('peekReveal');
 		client.off('nameTaken');
+		client.off('spyNotify');
 		client.off('error');
 	});
 
@@ -201,6 +210,10 @@
 	function leaveRoom() {
 		client?.emit('leave');
 		goto('/');
+	}
+
+	function skipAction() {
+		client?.emit('skipAction');
 	}
 
 	function rejoinWithName() {
@@ -478,6 +491,9 @@
 							{#if player.id === gameState.dealerPlayerId}
 								<span class="text-xs bg-yellow-500/30 text-yellow-200 px-1.5 py-0.5 rounded">Dealer</span>
 							{/if}
+							{#if player.disconnected}
+								<span class="text-xs bg-red-500/30 text-red-300 px-1.5 py-0.5 rounded">Away</span>
+							{/if}
 						</h2>
 						<p class="text-sm text-emerald-100 mb-2">{player.handCount} cards</p>
 						{#if player.id === gameState.myPlayerId}
@@ -490,9 +506,7 @@
 										>
 											<span class="text-xs text-white/50">{i + 1}</span>
 										</div>
-									{:else if peekReveal?.cardIndex === i}
-										<CardComponent card={peekReveal.card} onclick={() => handleOwnCardClick(i)} />
-									{:else}
+																		{:else}
 										<button
 											onclick={() => handleOwnCardClick(i)}
 											class="w-10 h-14 sm:w-12 sm:h-16 bg-blue-700 rounded border border-white/20 hover:bg-blue-500 transition-colors flex flex-col items-center justify-center touch-manipulation"
@@ -584,31 +598,18 @@
 					<div class="flex flex-col items-center gap-3">
 						<p class="text-sm text-emerald-100">You drew:</p>
 						<CardComponent card={gameState.drawnCard} />
+						{#if gameState.drawnAction}
+							<p class="text-xs text-emerald-200">Discard to use the {actionLabel(gameState.drawnAction)} ability, or swap it into your hand</p>
+						{/if}
 						<div class="flex flex-wrap gap-2 justify-center">
 							<button
 								onclick={discardDrawn}
-								class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg font-semibold transition-colors touch-manipulation"
+								class="px-4 py-2 bg-amber-600 hover:bg-amber-500 rounded-lg font-semibold transition-colors touch-manipulation"
 							>
-								Discard it
+								Discard{gameState.drawnAction ? ' & use ability' : ''}
 							</button>
-							{#if gameState.drawnAction}
-								<button
-									onclick={() => { const action = gameState!.drawnAction; if (action === 'peek') selectMode = 'peek'; else if (action === 'spy') selectMode = 'spy'; else if (action === 'blindSwap') blindSwap(); else if (action === 'lookyLookySwap') lookyLookySwap(); }}
-									class="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg font-semibold transition-colors touch-manipulation"
-								>
-									{actionLabel(gameState!.drawnAction)}
-								</button>
-							{/if}
-							{#if selectMode}
-								<button
-									onclick={() => (selectMode = null)}
-									class="px-4 py-2 bg-gray-600 hover:bg-gray-500 rounded-lg font-semibold transition-colors touch-manipulation"
-								>
-									Cancel
-								</button>
-							{/if}
 						</div>
-						<p class="text-sm text-emerald-100">{cardHint()}</p>
+						<p class="text-xs text-emerald-200">— or click one of your cards below to swap —</p>
 					</div>
 				{:else}
 					<div class="flex flex-wrap gap-2">
@@ -618,9 +619,18 @@
 						>
 							Draw card
 						</button>
-
 					</div>
 				{/if}
+			{:else if gameState.pendingChoice && gameState.pendingChoice.type === 'peek' && gameState.pendingChoice.playerId === gameState.myPlayerId}
+				<div class="flex flex-col items-center gap-2 bg-black/20 rounded-xl p-4 max-w-md w-full">
+					<p class="text-emerald-100 font-semibold">Peek: click one of your cards to look at it</p>
+					<button onclick={skipAction} class="px-3 py-1 text-sm bg-gray-600 hover:bg-gray-500 rounded transition-colors touch-manipulation">Skip</button>
+				</div>
+			{:else if gameState.pendingChoice && gameState.pendingChoice.type === 'spy' && gameState.pendingChoice.playerId === gameState.myPlayerId}
+				<div class="flex flex-col items-center gap-2 bg-black/20 rounded-xl p-4 max-w-md w-full">
+					<p class="text-emerald-100 font-semibold">Spy: click an opponent's card to peek at it</p>
+					<button onclick={skipAction} class="px-3 py-1 text-sm bg-gray-600 hover:bg-gray-500 rounded transition-colors touch-manipulation">Skip</button>
+				</div>
 			{:else if !gameState.pendingChoice}
 				<p class="text-emerald-100 text-sm">Wait for your turn — you can still snap!</p>
 			{/if}
@@ -649,5 +659,23 @@
 			{/if}
 		{/if}
 	</main>
-
 </div>
+
+{#if peekReveal}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onclick={() => (peekReveal = null)}>
+		<div class="flex flex-col items-center gap-4 bg-green-900 rounded-2xl p-8 shadow-2xl" onclick={(e) => e.stopPropagation()}>
+			<p class="font-semibold text-lg">Your card #{peekReveal.cardIndex + 1}</p>
+			<CardComponent card={peekReveal.card} />
+			<p class="text-sm text-emerald-200">Tap anywhere to close</p>
+		</div>
+	</div>
+{/if}
+
+{#if spyNotify}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onclick={() => (spyNotify = null)}>
+		<div class="flex flex-col items-center gap-4 bg-blue-900 rounded-2xl p-8 shadow-2xl" onclick={(e) => e.stopPropagation()}>
+			<p class="font-semibold text-lg">👀 {spyNotify.spiedBy} looked at your card #{spyNotify.cardIndex + 1}</p>
+			<p class="text-sm text-blue-200">Tap anywhere to dismiss</p>
+		</div>
+	</div>
+{/if}

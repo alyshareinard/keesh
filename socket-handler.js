@@ -72,14 +72,23 @@ function removeSocketFromGame(socket) {
 	if (!roomId) return;
 	const game = games.get(roomId);
 	if (!game) return;
-	game.players = game.players.filter((p) => p.id !== socket.id);
 	socketRoom.delete(socket.id);
 	socket.leave(roomId);
-	if (game.players.length === 0) {
-		games.delete(roomId);
+	if (game.status === 'waiting') {
+		game.players = game.players.filter((p) => p.id !== socket.id);
+		if (game.players.length === 0) {
+			games.delete(roomId);
+		} else {
+			broadcastState(game);
+		}
 	} else {
-		if (game.currentPlayerIndex >= game.players.length) game.currentPlayerIndex = 0;
-		broadcastState(game);
+		const player = game.players.find((p) => p.id === socket.id);
+		if (player) {
+			player.disconnected = true;
+			log(game, `${player.name} disconnected (hand preserved)`);
+			if (game.currentPlayerIndex >= game.players.length) game.currentPlayerIndex = 0;
+			broadcastState(game);
+		}
 	}
 }
 
@@ -113,6 +122,7 @@ function getStateForPlayer(game, playerId) {
 			handSlots: p.hand.map((c) => c !== null),
 			looked: p.looked,
 			isCurrent: currentPlayerId(game) === p.id,
+			disconnected: p.disconnected ?? false,
 			score: game.finalScores?.[p.id] ?? null
 		})),
 		currentPlayerId: currentPlayerId(game),
@@ -147,6 +157,7 @@ function addPlayer(game, socket, playerName) {
 			socketRoom.delete(oldId);
 			existing.id = socket.id;
 			existing.socket = socket;
+			existing.disconnected = false;
 			if (game.totalScores[socket.id] === undefined && game.totalScores[oldId] !== undefined) {
 				game.totalScores[socket.id] = game.totalScores[oldId];
 				delete game.totalScores[oldId];
@@ -338,10 +349,45 @@ function discardDrawn(game, socket) {
 		socket.emit('error', 'No drawn card to discard');
 		return;
 	}
+	const action = game.drawnAction;
 	game.discardPile.push(game.drawnCard);
 	game.drawnCard = null;
 	game.drawnAction = null;
-	log(game, `${player.name} discarded the drawn card`);
+	if (action === 'peek') {
+		game.pendingChoice = { playerId: player.id, type: 'peek', cardIndex: null };
+		log(game, `${player.name} discarded a peek card — choosing a card to peek`);
+		broadcastState(game);
+	} else if (action === 'spy') {
+		game.pendingChoice = { playerId: player.id, type: 'spy', targetPlayerId: null, targetCardIndex: null };
+		log(game, `${player.name} discarded a spy card — choosing a card to spy`);
+		broadcastState(game);
+	} else if (action === 'blindSwap') {
+		game.pendingChoice = { playerId: player.id, type: 'blindSwap', ownCardIndex: null };
+		log(game, `${player.name} discarded and is choosing a blind swap`);
+		broadcastState(game);
+	} else if (action === 'lookyLookySwap') {
+		game.pendingChoice = { playerId: player.id, type: 'lookyLookySwap', ownCardIndex: null };
+		log(game, `${player.name} discarded and is choosing a looky-looky swap`);
+		broadcastState(game);
+	} else {
+		log(game, `${player.name} discarded the drawn card`);
+		finishTurnWithKeeshWindow(game, player.id);
+	}
+}
+
+function skipAction(game, socket) {
+	const player = game.players.find((p) => p.id === socket.id);
+	if (!player) return;
+	if (!game.pendingChoice || game.pendingChoice.playerId !== player.id) {
+		socket.emit('error', 'No action to skip');
+		return;
+	}
+	if (!['peek', 'spy', 'blindSwap', 'lookyLookySwap'].includes(game.pendingChoice.type)) {
+		socket.emit('error', 'Cannot skip this action');
+		return;
+	}
+	log(game, `${player.name} skipped the action`);
+	game.pendingChoice = null;
 	finishTurnWithKeeshWindow(game, player.id);
 }
 
@@ -385,7 +431,8 @@ function peekCard(game, socket, cardIndex) {
 		socket.emit('error', 'Not your turn');
 		return;
 	}
-	if (!game.drawnCard || game.drawnAction !== 'peek') {
+	const viaChoice = game.pendingChoice?.playerId === player.id && game.pendingChoice?.type === 'peek';
+	if (!viaChoice && (!game.drawnCard || game.drawnAction !== 'peek')) {
 		socket.emit('error', 'No peek available');
 		return;
 	}
@@ -393,13 +440,15 @@ function peekCard(game, socket, cardIndex) {
 		socket.emit('error', 'Invalid card');
 		return;
 	}
-	const peekedCard = game.drawnCard;
-	game.discardPile.push(game.drawnCard);
-	game.drawnCard = null;
-	game.drawnAction = null;
+	if (!viaChoice) {
+		game.discardPile.push(game.drawnCard);
+		game.drawnCard = null;
+		game.drawnAction = null;
+	}
+	game.pendingChoice = null;
 	player.knownCards[cardIndex] = false;
-	log(game, `${player.name} peeked at a card`);
-	player.socket.emit('peekReveal', { cardIndex, card: peekedCard, duration: 3000 });
+	log(game, `${player.name} peeked at card ${cardIndex + 1}`);
+	player.socket.emit('peekReveal', { cardIndex, card: player.hand[cardIndex], duration: 3000 });
 	finishTurnWithKeeshWindow(game, player.id);
 }
 
@@ -414,7 +463,8 @@ function spyCard(game, socket, targetPlayerId, cardIndex) {
 		socket.emit('error', 'Not your turn');
 		return;
 	}
-	if (!game.drawnCard || game.drawnAction !== 'spy') {
+	const viaChoice = game.pendingChoice?.playerId === player.id && game.pendingChoice?.type === 'spy';
+	if (!viaChoice && (!game.drawnCard || game.drawnAction !== 'spy')) {
 		socket.emit('error', 'No spy available');
 		return;
 	}
@@ -423,14 +473,18 @@ function spyCard(game, socket, targetPlayerId, cardIndex) {
 		socket.emit('error', 'Invalid spy target');
 		return;
 	}
-	game.discardPile.push(game.drawnCard);
-	game.drawnCard = null;
-	game.drawnAction = null;
+	if (!viaChoice) {
+		game.discardPile.push(game.drawnCard);
+		game.drawnCard = null;
+		game.drawnAction = null;
+	}
+	game.pendingChoice = null;
 	player.socket.emit('spyResult', {
 		playerId: targetPlayerId,
 		cardIndex,
 		card: target.hand[cardIndex]
 	});
+	target.socket.emit('spyNotify', { cardIndex, spiedBy: player.name });
 	log(game, `${player.name} spied on a card`);
 	finishTurnWithKeeshWindow(game, player.id);
 }
@@ -601,6 +655,10 @@ function snapCard(game, socket, targetPlayerId, cardIndex) {
 	if (!snapper) return;
 	if (game.status !== 'playing') {
 		socket.emit('error', 'Game not in progress');
+		return;
+	}
+	if (game.keeshCallerId) {
+		socket.emit('error', 'Snapping is frozen — Keesh has been called');
 		return;
 	}
 	if (game.pendingChoice) {
@@ -905,6 +963,12 @@ export default function injectSocketIO(server) {
 			if (!roomId) return;
 			const game = games.get(roomId);
 			if (game) snapCard(game, socket, targetPlayerId, cardIndex);
+		});
+		socket.on('skipAction', () => {
+			const roomId = socketRoom.get(socket.id);
+			if (!roomId) return;
+			const game = games.get(roomId);
+			if (game) skipAction(game, socket);
 		});
 		socket.on('keesh', () => {
 			const roomId = socketRoom.get(socket.id);

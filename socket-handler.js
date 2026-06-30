@@ -51,6 +51,7 @@ function getOrCreateGame(roomId) {
 			players: [],
 			deck: [],
 			discardPile: [],
+			dealerIndex: 0,
 			currentPlayerIndex: 0,
 			drawnCard: null,
 			drawnAction: null,
@@ -115,6 +116,7 @@ function getStateForPlayer(game, playerId) {
 			score: game.finalScores?.[p.id] ?? null
 		})),
 		currentPlayerId: currentPlayerId(game),
+		dealerPlayerId: game.players[game.dealerIndex]?.id ?? null,
 		keeshCallerId: game.keeshCallerId,
 		discardPileTop: game.discardPile.length > 0 ? game.discardPile[game.discardPile.length - 1] : null,
 		finalScores: game.finalScores,
@@ -165,14 +167,15 @@ function startGame(game, socket) {
 		p.looked = false;
 	}
 	game.discardPile = [];
-	game.currentPlayerIndex = 0;
+	game.dealerIndex = 0;
+	game.currentPlayerIndex = 1 % game.players.length;
 	game.drawnCard = null;
 	game.drawnAction = null;
 	game.pendingChoice = null;
 	game.keeshCallerId = null;
 	game.finalScores = null;
 	game.status = 'looking';
-	log(game, 'Game started. Look at one card before play begins.');
+	log(game, `${game.players[0].name} deals. ${game.players[game.currentPlayerIndex].name} goes first.`);
 	broadcastState(game);
 }
 
@@ -777,7 +780,8 @@ function startNextRound(game, resetTotals = false) {
 		p.looked = false;
 	}
 	game.discardPile = [];
-	game.currentPlayerIndex = 0;
+	game.dealerIndex = (game.dealerIndex + 1) % game.players.length;
+	game.currentPlayerIndex = (game.dealerIndex + 1) % game.players.length;
 	game.drawnCard = null;
 	game.drawnAction = null;
 	game.pendingChoice = null;
@@ -785,7 +789,7 @@ function startNextRound(game, resetTotals = false) {
 	game.finalScores = null;
 	game.keeshWindow = null;
 	game.status = 'looking';
-	log(game, 'Next round started. Look at one card before play begins.');
+	log(game, `${game.players[game.dealerIndex].name} deals. ${game.players[game.currentPlayerIndex].name} goes first.`);
 	broadcastState(game);
 }
 
@@ -897,6 +901,9 @@ export default function injectSocketIO(server) {
 			if (!roomId) return;
 			const game = games.get(roomId);
 			if (game && game.status === 'finished' && game.matchWinnerIds) startNextRound(game, true);
+		});
+		socket.on('leave', () => {
+			removeSocketFromGame(socket);
 		});
 		socket.on('disconnect', () => {
 			removeSocketFromGame(socket);

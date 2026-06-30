@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
 	import { getSocket } from '$lib/socket';
 	import { type Card } from '$lib/cards';
 	import CardComponent from '$lib/components/Card.svelte';
@@ -54,6 +55,7 @@
 		pendingChoice: PendingChoice | null;
 		players: PlayerPublic[];
 		currentPlayerId: string | null;
+		dealerPlayerId: string | null;
 		keeshCallerId: string | null;
 		discardPileTop: Card | null;
 		finalScores: Record<string, number> | null;
@@ -173,6 +175,11 @@
 
 	function newMatch() {
 		client?.emit('newMatch');
+	}
+
+	function leaveRoom() {
+		client?.emit('leave');
+		goto('/');
 	}
 
 	function handleOwnCardClick(cardIndex: number) {
@@ -322,13 +329,17 @@
 <div class="min-h-screen flex flex-col bg-green-900 text-white">
 	<header class="flex items-center justify-between p-4 bg-black/20">
 		<h1 class="font-bold text-lg">Room: {roomId}</h1>
-		<div class="flex items-center gap-4">
+		<div class="flex items-center gap-3">
 			<span class="text-emerald-100">{playerName}</span>
 			<span
 				class="text-xs uppercase tracking-wider {connected ? 'text-emerald-400' : 'text-red-400'}"
 			>
 				{connected ? 'Online' : 'Offline'}
 			</span>
+			<button
+				onclick={leaveRoom}
+				class="px-3 py-1 text-xs bg-red-800/60 hover:bg-red-700 rounded transition-colors touch-manipulation"
+			>Leave</button>
 		</div>
 	</header>
 
@@ -426,9 +437,12 @@
 							? 'ring-2 ring-emerald-400'
 							: ''}"
 					>
-						<h2 class="font-bold mb-2">
+						<h2 class="font-bold mb-2 flex items-center gap-2 flex-wrap">
 							{player.name}
 							{player.id === gameState.myPlayerId ? '(you)' : ''}
+							{#if player.id === gameState.dealerPlayerId}
+								<span class="text-xs bg-yellow-500/30 text-yellow-200 px-1.5 py-0.5 rounded">Dealer</span>
+							{/if}
 						</h2>
 						<p class="text-sm text-emerald-100 mb-2">{player.handCount} cards</p>
 						{#if player.id !== gameState.myPlayerId}

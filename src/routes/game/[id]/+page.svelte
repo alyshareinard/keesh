@@ -371,13 +371,6 @@
 					</button>
 				{/if}
 			</div>
-		{:else if gameState.status === 'looking'}
-			<div class="text-center max-w-md">
-				<p class="text-emerald-100 font-medium mb-2">{statusText()}</p>
-				<p class="text-sm text-emerald-200 mb-6">
-					Click one of your four face-down cards to peek at it. Once everyone has looked, play begins.
-				</p>
-			</div>
 		{:else if gameState.status === 'finished'}
 			<div class="text-center max-w-md">
 				{#if gameState.matchWinnerIds && gameState.matchWinnerIds.length > 0}

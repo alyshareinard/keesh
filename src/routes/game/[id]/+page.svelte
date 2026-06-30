@@ -4,7 +4,7 @@
 	import { getSocket } from '$lib/socket';
 	import { type Card } from '$lib/cards';
 	import CardComponent from '$lib/components/Card.svelte';
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import type { Socket } from 'socket.io-client';
 
 	type PlayerPublic = {
@@ -81,6 +81,10 @@
 		const socket = await getSocket();
 		client = socket;
 		if (!socket) return;
+		if (socket.connected) {
+			connected = true;
+			socket.emit('join', { roomId, playerName });
+		}
 		socket.on('connect', () => {
 			connected = true;
 			socket.emit('join', { roomId, playerName });
@@ -108,6 +112,17 @@
 		socket.on('error', (msg: string) => {
 			alert(msg);
 		});
+	});
+
+	onDestroy(() => {
+		if (!client) return;
+		client.off('connect');
+		client.off('disconnect');
+		client.off('state');
+		client.off('spyResult');
+		client.off('peekReveal');
+		client.off('nameTaken');
+		client.off('error');
 	});
 
 	function start() {

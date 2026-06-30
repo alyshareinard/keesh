@@ -445,7 +445,31 @@
 							{/if}
 						</h2>
 						<p class="text-sm text-emerald-100 mb-2">{player.handCount} cards</p>
-						{#if player.id !== gameState.myPlayerId}
+						{#if player.id === gameState.myPlayerId}
+							<div class="flex flex-wrap gap-1 mt-1">
+								{#each gameState.myHand as card, i}
+									{#if card === null}
+										<div
+											class="w-10 h-14 sm:w-12 sm:h-16 rounded border border-white/10 bg-black/10 flex items-center justify-center"
+											aria-label="Empty slot {i + 1}"
+										>
+											<span class="text-xs text-white/50">{i + 1}</span>
+										</div>
+									{:else if peekReveal?.cardIndex === i}
+										<CardComponent card={peekReveal.card} onclick={() => handleOwnCardClick(i)} />
+									{:else}
+										<button
+											onclick={() => handleOwnCardClick(i)}
+											class="w-10 h-14 sm:w-12 sm:h-16 bg-blue-700 rounded border border-white/20 hover:bg-blue-500 transition-colors flex flex-col items-center justify-center touch-manipulation"
+											aria-label="Card {i + 1}"
+										>
+											<span class="text-xl">🂠</span>
+											<span class="text-xs mt-0.5 text-white/80">{i + 1}</span>
+										</button>
+									{/if}
+								{/each}
+							</div>
+						{:else}
 							<div class="flex flex-wrap gap-1">
 								{#each player.handSlots as occupied, i}
 									{#if occupied}
@@ -591,33 +615,4 @@
 		{/if}
 	</main>
 
-	{#if gameState && (gameState.status === 'looking' || gameState.status === 'playing')}
-		<footer class="bg-black/20 p-4">
-			<h3 class="text-center font-bold mb-1">Your hand</h3>
-			<p class="text-center text-sm text-emerald-100 mb-3">{cardHint()}</p>
-			<div class="flex flex-wrap justify-center gap-2">
-				{#each gameState.myHand as card, i}
-					{#if card === null}
-						<div
-							class="w-16 h-24 sm:w-20 sm:h-28 rounded-lg border border-white/10 bg-black/10 flex flex-col items-center justify-center"
-							aria-label="Empty slot {i + 1}"
-						>
-							<span class="text-xs text-white/50">{i + 1}</span>
-						</div>
-					{:else if peekReveal?.cardIndex === i}
-						<CardComponent card={peekReveal.card} onclick={() => handleOwnCardClick(i)} />
-					{:else}
-						<button
-							onclick={() => handleOwnCardClick(i)}
-							class="w-16 h-24 sm:w-20 sm:h-28 bg-blue-700 rounded-lg border border-white/20 hover:bg-blue-500 transition-colors flex flex-col items-center justify-center touch-manipulation"
-							aria-label="Card {i + 1}"
-						>
-							<span class="text-2xl">🂠</span>
-							<span class="text-xs mt-1 text-white/80">{i + 1}</span>
-						</button>
-					{/if}
-				{/each}
-			</div>
-		</footer>
-	{/if}
 </div>

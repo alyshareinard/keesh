@@ -812,6 +812,27 @@ function _callKeesh(game, player) {
 	broadcastState(game);
 }
 
+function passKeesh(game, socket) {
+	const player = game.players.find((p) => p.id === socket.id);
+	if (!player) return;
+	if (game.status !== 'playing') {
+		socket.emit('error', 'Game not in progress');
+		return;
+	}
+	if (!game.keeshWindow || game.keeshWindow.playerId !== player.id) {
+		socket.emit('error', 'No keesh window to pass');
+		return;
+	}
+	if (game.keeshCallerId) {
+		socket.emit('error', 'Keesh already called');
+		return;
+	}
+	game.keeshWindow = null;
+	log(game, `${player.name} passed on keesh`);
+	nextPlayer(game);
+	broadcastState(game);
+}
+
 function callKeesh(game, socket) {
 	const player = game.players.find((p) => p.id === socket.id);
 	if (!player) return;
@@ -1008,6 +1029,12 @@ export default function injectSocketIO(server) {
 			if (!roomId) return;
 			const game = games.get(roomId);
 			if (game) callKeesh(game, socket);
+		});
+		socket.on('passKeesh', () => {
+			const roomId = socketRoom.get(socket.id);
+			if (!roomId) return;
+			const game = games.get(roomId);
+			if (game) passKeesh(game, socket);
 		});
 		socket.on('nextRound', () => {
 			const roomId = socketRoom.get(socket.id);

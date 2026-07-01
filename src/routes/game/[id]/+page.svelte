@@ -215,6 +215,10 @@
 		client?.emit('keesh');
 	}
 
+	function passKeesh() {
+		client?.emit('passKeesh');
+	}
+
 	function nextRound() {
 		client?.emit('nextRound');
 	}
@@ -593,19 +597,20 @@
 						</div>
 					{/if}
 					{#if gameState.keeshWindow?.playerId === gameState.myPlayerId}
-						<button
-							onclick={callKeesh}
-							class="px-4 py-2 bg-green-500 hover:bg-green-400 text-black rounded-lg font-bold animate-pulse transition-colors touch-manipulation"
-						>
-							Keesh
-						</button>
-					{:else}
-						<button
-							disabled
-							class="px-4 py-2 bg-gray-700 text-white/50 rounded-lg font-bold cursor-not-allowed"
-						>
-							Keesh
-						</button>
+						<div class="flex flex-col gap-2">
+							<button
+								onclick={callKeesh}
+								class="px-4 py-2 bg-green-500 hover:bg-green-400 text-black rounded-lg font-bold animate-pulse transition-colors touch-manipulation"
+							>
+								Keesh
+							</button>
+							<button
+								onclick={passKeesh}
+								class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-bold transition-colors touch-manipulation"
+							>
+								Nah
+							</button>
+						</div>
 					{/if}
 				</div>
 			</div>
@@ -633,7 +638,20 @@
 
 			{#if isMyTurn() && !gameState.pendingChoice}
 				{#if gameState.keeshWindow?.playerId === gameState.myPlayerId}
-					<p class="text-emerald-100 text-sm">Call Keesh or pass</p>
+					<div class="flex gap-2 items-center">
+						<button
+							onclick={callKeesh}
+							class="px-4 py-2 bg-green-500 hover:bg-green-400 text-black rounded-lg font-bold animate-pulse transition-colors touch-manipulation"
+						>
+							Keesh
+						</button>
+						<button
+							onclick={passKeesh}
+							class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-bold transition-colors touch-manipulation"
+						>
+							Nah
+						</button>
+					</div>
 				{:else if gameState.drawnCard}
 					<div class="flex flex-col items-center gap-3">
 						<p class="text-sm text-emerald-100">You drew:</p>
@@ -649,9 +667,9 @@
 								Discard{gameState.drawnAction ? ' & use ability' : ''}
 							</button>
 						</div>
-						<p class="text-xs text-emerald-200">— or click one of your cards below to swap —</p>
+						<p class="text-xs text-emerald-200">— or click one of your cards above to swap —</p>
 					</div>
-				{:else}
+				{:else if gameState.status === 'playing'}
 					<div class="flex flex-wrap gap-2">
 						<button
 							onclick={draw}

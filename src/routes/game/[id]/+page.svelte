@@ -93,6 +93,7 @@
 	let swapNotify: { cardIndex: number; swappedBy: string } | null = $state(null);
 	let pendingEndGameCountdown = $state(0);
 	let drawnCardInfo: Card | null = $state(null);
+	let confirmRemovePlayerId: string | null = $state(null);
 
 	onMount(async () => {
 		const socket = await getSocket();
@@ -463,7 +464,7 @@
 		</div>
 	</header>
 
-	<main class="flex-1 flex flex-col items-center p-4 gap-6 overflow-auto">
+	<main class="flex-1 flex flex-col items-center p-2 sm:p-4 gap-4 sm:gap-6 overflow-auto">
 		{#if nameTaken}
 			<div class="bg-black/30 rounded-2xl p-8 max-w-sm w-full text-center flex flex-col gap-4">
 				<p class="text-red-300 font-semibold">That name is already taken in this room.</p>
@@ -585,10 +586,10 @@
 				</div>
 			{/if}
 
-			<div class="grid grid-rows-2 grid-flow-col gap-4 auto-cols-min sm:flex sm:flex-wrap sm:justify-center">
+			<div class="grid grid-rows-2 grid-flow-col gap-2 sm:gap-4 auto-cols-min sm:flex sm:flex-wrap sm:justify-center">
 				{#each [...gameState.players].sort((a, b) => a.id === gameState!.myPlayerId ? 1 : b.id === gameState!.myPlayerId ? -1 : 0) as player}
 					<div
-						class="bg-black/20 rounded-xl p-4 min-w-0 sm:min-w-[12rem] {player.isCurrent
+						class="relative bg-black/20 rounded-xl p-2 pr-8 sm:p-4 sm:pr-10 min-w-0 sm:min-w-[12rem] {player.isCurrent
 							? 'ring-2 ring-emerald-400'
 							: ''}"
 					>
@@ -606,13 +607,14 @@
 							{#if player.disconnected}
 								<span class="text-xs bg-red-500/30 text-red-300 px-1.5 py-0.5 rounded">Away</span>
 							{/if}
-							<button
-								onclick={() => removePlayer(player.id)}
-								class="ml-auto text-xs bg-red-600 hover:bg-red-500 text-white px-2 py-1 rounded shrink-0 touch-manipulation"
-							>
-								Remove
-							</button>
 						</h2>
+						<button
+							onclick={() => (confirmRemovePlayerId = player.id)}
+							class="absolute top-1 right-1 w-6 h-6 flex items-center justify-center bg-red-600/80 hover:bg-red-500 text-white rounded-full text-sm font-bold leading-none touch-manipulation"
+							aria-label="Remove {player.name}"
+						>
+							×
+						</button>
 						<p class="text-sm text-emerald-100 mb-2">{player.handCount} cards</p>
 						{#if player.id === gameState.myPlayerId}
 							<div class="flex flex-row-reverse gap-1 mt-1">
@@ -865,6 +867,36 @@
 			<p class="text-sm text-slate-200">Worth <strong>{cardPoints(drawnCardInfo)} points</strong> in your hand</p>
 			<p class="text-sm text-slate-300 text-center">{cardAbilityText(drawnCardInfo)}</p>
 			<p class="text-sm text-slate-400">Tap anywhere to close</p>
+		</div>
+	</div>
+{/if}
+
+{#if confirmRemovePlayerId}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onclick={() => (confirmRemovePlayerId = null)}>
+		<div class="flex flex-col items-center gap-4 bg-slate-800 rounded-2xl p-8 shadow-2xl max-w-sm w-full mx-4" onclick={(e) => e.stopPropagation()}>
+			<p class="font-semibold text-lg text-center">
+				Remove {playerNameById(confirmRemovePlayerId)}?
+			</p>
+			<p class="text-sm text-slate-300 text-center">
+				They will be removed from the game and their hand discarded.
+			</p>
+			<div class="flex gap-3 w-full">
+				<button
+					onclick={() => (confirmRemovePlayerId = null)}
+					class="flex-1 py-2 bg-slate-600 hover:bg-slate-500 rounded-lg font-semibold transition-colors touch-manipulation"
+				>
+					Cancel
+				</button>
+				<button
+					onclick={() => {
+						if (confirmRemovePlayerId) removePlayer(confirmRemovePlayerId);
+						confirmRemovePlayerId = null;
+					}}
+					class="flex-1 py-2 bg-red-600 hover:bg-red-500 rounded-lg font-semibold transition-colors touch-manipulation"
+				>
+					Remove
+				</button>
+			</div>
 		</div>
 	</div>
 {/if}

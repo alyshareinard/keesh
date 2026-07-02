@@ -427,6 +427,16 @@
 	function playerNameById(id: string): string {
 		return gameState?.players.find((p) => p.id === id)?.name ?? 'Unknown';
 	}
+
+	function cardColumns<T>(items: T[]): T[][] {
+		const columns: T[][] = [];
+		for (let i = 0; i < items.length; i += 2) {
+			const column: T[] = [items[i]];
+			if (i + 1 < items.length) column.push(items[i + 1]);
+			columns.push(column);
+		}
+		return columns;
+	}
 </script>
 
 
@@ -570,16 +580,21 @@
 				</div>
 			{/if}
 
-			<div class="flex flex-wrap gap-4 justify-center">
+			<div class="grid grid-rows-2 grid-flow-col gap-4 auto-cols-min sm:flex sm:flex-wrap sm:justify-center">
 				{#each [...gameState.players].sort((a, b) => a.id === gameState!.myPlayerId ? 1 : b.id === gameState!.myPlayerId ? -1 : 0) as player}
 					<div
-						class="bg-black/20 rounded-xl p-4 min-w-[12rem] {player.isCurrent
+						class="bg-black/20 rounded-xl p-4 min-w-0 sm:min-w-[12rem] {player.isCurrent
 							? 'ring-2 ring-emerald-400'
 							: ''}"
 					>
 						<h2 class="font-bold mb-2 flex items-center gap-2 flex-wrap">
 							{player.name}
 							{player.id === gameState.myPlayerId ? '(you)' : ''}
+							{#if gameState.totalScores[player.id] !== undefined}
+								<span class="text-xs bg-emerald-500/30 text-emerald-200 px-1.5 py-0.5 rounded">
+									{gameState.totalScores[player.id]} pts
+								</span>
+							{/if}
 							{#if player.id === gameState.dealerPlayerId}
 								<span class="text-xs bg-yellow-500/30 text-yellow-200 px-1.5 py-0.5 rounded">Dealer</span>
 							{/if}
@@ -589,42 +604,52 @@
 						</h2>
 						<p class="text-sm text-emerald-100 mb-2">{player.handCount} cards</p>
 						{#if player.id === gameState.myPlayerId}
-							<div class="flex flex-wrap gap-1 mt-1">
-								{#each gameState.myHand as card, i}
-									{#if card === null}
-										<div
-											class="w-10 h-14 sm:w-12 sm:h-16 rounded border border-white/10 bg-black/10 flex items-center justify-center"
-											aria-label="Empty slot {i + 1}"
-										>
-											<span class="text-xs text-white/50">{i + 1}</span>
-										</div>
-																		{:else}
-										<button
-											onclick={() => handleOwnCardClick(i)}
-											class="w-10 h-14 sm:w-12 sm:h-16 bg-blue-700 rounded border hover:bg-blue-500 transition-all flex flex-col items-center justify-center touch-manipulation {swapHighlights.some((h) => h.playerId === gameState!.myPlayerId && h.cardIndex === i) ? 'border-orange-400 ring-2 ring-orange-400' : 'border-white/20'}"
-											aria-label="Card {i + 1}"
-										>
-											<span class="text-xl">🂠</span>
-											<span class="text-xs mt-0.5 text-white/80">{i + 1}</span>
-										</button>
-									{/if}
+							<div class="flex flex-row-reverse gap-1 mt-1">
+								{#each cardColumns(gameState.myHand) as column, colIndex}
+									<div class="flex flex-col gap-1">
+										{#each column as card, rowIndex}
+											{@const i = colIndex * 2 + rowIndex}
+											{#if card === null}
+												<div
+													class="w-10 h-14 sm:w-12 sm:h-16 rounded border border-white/10 bg-black/10 flex items-center justify-center"
+													aria-label="Empty slot {i + 1}"
+												>
+													<span class="text-xs text-white/50">{i + 1}</span>
+												</div>
+											{:else}
+												<button
+													onclick={() => handleOwnCardClick(i)}
+													class="w-10 h-14 sm:w-12 sm:h-16 bg-blue-700 rounded border hover:bg-blue-500 transition-all flex flex-col items-center justify-center touch-manipulation {swapHighlights.some((h) => h.playerId === gameState!.myPlayerId && h.cardIndex === i) ? 'border-orange-400 ring-2 ring-orange-400' : 'border-white/20'}"
+													aria-label="Card {i + 1}"
+												>
+													<span class="text-xl">🂠</span>
+													<span class="text-xs mt-0.5 text-white/80">{i + 1}</span>
+												</button>
+											{/if}
+										{/each}
+									</div>
 								{/each}
 							</div>
 						{:else}
-							<div class="flex flex-wrap gap-1">
-								{#each player.handSlots as occupied, i}
-									{#if occupied}
-										<button
-											onclick={() => handleOpponentCardClick(player.id, i)}
-											class="w-10 h-14 sm:w-12 sm:h-16 bg-blue-700 rounded border hover:bg-blue-500 transition-all touch-manipulation {swapHighlights.some((h) => h.playerId === player.id && h.cardIndex === i) ? 'border-orange-400 ring-2 ring-orange-400' : 'border-white/20'}"
-											aria-label="Card {i + 1} from {player.name}"
-										></button>
-									{:else}
-										<div
-											class="w-10 h-14 sm:w-12 sm:h-16 rounded border border-white/10 bg-black/10"
-											aria-label="Empty slot {i + 1} from {player.name}"
-										></div>
-									{/if}
+							<div class="flex flex-row-reverse gap-1">
+								{#each cardColumns(player.handSlots) as column, colIndex}
+									<div class="flex flex-col gap-1">
+										{#each column as occupied, rowIndex}
+											{@const i = colIndex * 2 + rowIndex}
+											{#if occupied}
+												<button
+													onclick={() => handleOpponentCardClick(player.id, i)}
+													class="w-10 h-14 sm:w-12 sm:h-16 bg-blue-700 rounded border hover:bg-blue-500 transition-all touch-manipulation {swapHighlights.some((h) => h.playerId === player.id && h.cardIndex === i) ? 'border-orange-400 ring-2 ring-orange-400' : 'border-white/20'}"
+													aria-label="Card {i + 1} from {player.name}"
+												></button>
+											{:else}
+												<div
+													class="w-10 h-14 sm:w-12 sm:h-16 rounded border border-white/10 bg-black/10"
+													aria-label="Empty slot {i + 1} from {player.name}"
+												></div>
+											{/if}
+										{/each}
+									</div>
 								{/each}
 							</div>
 						{/if}

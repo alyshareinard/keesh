@@ -26,11 +26,11 @@
 	aria-label={cardName(card)}
 	onclick={() => onclick?.()}
 >
-	<span class="absolute top-1 left-1 text-xs font-bold {colorClass}">
+	<span class="absolute top-1 left-1 text-sm sm:text-xs font-bold {colorClass}">
 		{card.rank}{symbol}
 	</span>
-	<span class="text-3xl sm:text-4xl {colorClass}">{symbol}</span>
-	<span class="absolute bottom-1 right-1 text-xs font-bold {colorClass} rotate-180">
+	<span class="text-4xl sm:text-3xl {colorClass}">{symbol}</span>
+	<span class="absolute bottom-1 right-1 text-sm sm:text-xs font-bold {colorClass} rotate-180">
 		{card.rank}{symbol}
 	</span>
 </button>

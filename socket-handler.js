@@ -71,6 +71,7 @@ function getOrCreateGame(roomId) {
 			totalScores: {},
 			matchWinnerIds: null,
 			keeshWindow: null,
+			pendingEndGame: null,
 			log: []
 		});
 	}
@@ -143,6 +144,7 @@ function getStateForPlayer(game, playerId) {
 		totalScores: game.totalScores,
 		matchWinnerIds: game.matchWinnerIds,
 		keeshWindow: game.keeshWindow,
+		pendingEndGame: game.pendingEndGame ? { endsAt: game.pendingEndGame.endsAt } : null,
 		revealedHands: game.status === 'finished'
 			? game.players.map((p) => ({ id: p.id, name: p.name, hand: p.hand }))
 			: null,
@@ -263,10 +265,16 @@ function currentPlayer(game) {
 }
 
 function nextPlayer(game) {
+	if (game.pendingEndGame) return;
 	if (game.keeshCallerId && game.status === 'playing') {
 		const nextIndex = (game.currentPlayerIndex + 1) % game.players.length;
 		if (game.players[nextIndex].id === game.keeshCallerId) {
-			endGame(game);
+			game.currentPlayerIndex = nextIndex;
+			game.drawnCard = null;
+			game.drawnAction = null;
+			game.pendingChoice = null;
+			game.keeshWindow = null;
+			startEndGameDelay(game);
 			return;
 		}
 	}
@@ -274,6 +282,20 @@ function nextPlayer(game) {
 	game.drawnCard = null;
 	game.drawnAction = null;
 	game.pendingChoice = null;
+}
+
+function startEndGameDelay(game) {
+	game.pendingEndGame = {
+		endsAt: Date.now() + 10000,
+		timer: setTimeout(() => {
+			if (game.pendingEndGame) {
+				game.pendingEndGame = null;
+				endGame(game);
+			}
+		}, 10000)
+	};
+	log(game, 'Final snap window: 10 seconds to snap');
+	broadcastState(game);
 }
 
 function finishTurnWithKeeshWindow(game, playerId) {
@@ -336,6 +358,10 @@ function drawCard(game, socket) {
 	}
 	if (game.drawnCard) {
 		socket.emit('error', 'You already drew a card');
+		return;
+	}
+	if (game.pendingEndGame) {
+		socket.emit('error', 'Game is ending — no more draws');
 		return;
 	}
 	if (game.keeshWindow) {
@@ -755,6 +781,11 @@ function snapCard(game, socket, targetPlayerId, cardIndex) {
 		broadcastState(game);
 		return;
 	}
+	const endGameAfterResolution = !!game.pendingEndGame;
+	if (game.pendingEndGame) {
+		clearTimeout(game.pendingEndGame.timer);
+		game.pendingEndGame = null;
+	}
 	removeCardFromHand(target, cardIndex);
 	game.discardPile.push(card);
 	log(game, `${snapper.name} snapped ${card.rank} of ${card.suit} from ${target.name}'s card ${cardIndex + 1}`);
@@ -776,8 +807,14 @@ function snapCard(game, socket, targetPlayerId, cardIndex) {
 			previousPlayerIndex,
 			savedKeeshWindow,
 			savedDrawnCard,
-			savedDrawnAction
+			savedDrawnAction,
+			endGameAfterResolution
 		};
+		broadcastState(game);
+		return;
+	}
+	if (endGameAfterResolution) {
+		endGame(game);
 		broadcastState(game);
 		return;
 	}
@@ -820,6 +857,11 @@ function selectSnapGiveCard(game, socket, cardIndex) {
 	if (choice.savedDrawnCard) {
 		game.drawnCard = choice.savedDrawnCard;
 		game.drawnAction = choice.savedDrawnAction || null;
+	}
+	if (choice.endGameAfterResolution) {
+		endGame(game);
+		broadcastState(game);
+		return;
 	}
 	if (choice.savedKeeshWindow && choice.savedKeeshWindow.expiresAt > Date.now()) {
 		game.keeshWindow = choice.savedKeeshWindow;
@@ -901,6 +943,10 @@ function callKeeshAutomatic(game, player) {
 function endGame(game) {
 	game.status = 'finished';
 	game.keeshWindow = null;
+	if (game.pendingEndGame) {
+		clearTimeout(game.pendingEndGame.timer);
+		game.pendingEndGame = null;
+	}
 	const scores = {};
 	for (const p of game.players) {
 		scores[p.id] = p.hand.reduce((sum, card) => sum + (card ? cardPoints(card) : 0), 0);
@@ -959,6 +1005,10 @@ function startNextRound(game, resetTotals = false) {
 	game.keeshCallerId = null;
 	game.finalScores = null;
 	game.keeshWindow = null;
+	if (game.pendingEndGame) {
+		clearTimeout(game.pendingEndGame.timer);
+		game.pendingEndGame = null;
+	}
 	game.status = 'looking';
 	log(game, `${game.players[game.dealerIndex].name} deals. ${game.players[game.currentPlayerIndex].name} goes first.`);
 	broadcastState(game);

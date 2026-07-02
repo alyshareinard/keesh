@@ -70,6 +70,7 @@
 		totalScores: Record<string, number>;
 		matchWinnerIds: string[] | null;
 		keeshWindow: KeeshWindow | null;
+		pendingEndGame: { endsAt: number } | null;
 		revealedHands: { id: string; name: string; hand: (Card | null)[] }[] | null;
 		log: string[];
 	};
@@ -89,6 +90,8 @@
 	let swapHighlights: { playerId: string; cardIndex: number }[] = $state([]);
 	let keeshCalledBy: string | null = $state(null);
 	let swapNotify: { cardIndex: number; swappedBy: string } | null = $state(null);
+	let pendingEndGameCountdown = $state(0);
+	let drawnCardInfo: Card | null = $state(null);
 
 	onMount(async () => {
 		const socket = await getSocket();
@@ -157,6 +160,21 @@
 		client.off('keeshCalled');
 		client.off('swapNotify');
 		client.off('error');
+	});
+
+	$effect(() => {
+		const g = gameState;
+		const pending = g?.pendingEndGame;
+		if (!pending) {
+			pendingEndGameCountdown = 0;
+			return;
+		}
+		const update = () => {
+			pendingEndGameCountdown = Math.max(0, Math.ceil((pending.endsAt - Date.now()) / 1000));
+		};
+		update();
+		const interval = setInterval(update, 1000);
+		return () => clearInterval(interval);
 	});
 
 	function start() {
@@ -324,6 +342,7 @@
 			if (g.matchWinnerIds && g.matchWinnerIds.length > 0) return 'Game over — scores below';
 			return 'Round over — scores below';
 		}
+		if (g.pendingEndGame) return `Final snap window: ${pendingEndGameCountdown} seconds left`;
 		if (!isMyTurn()) return `Waiting for ${g.players.find((p) => p.id === g.currentPlayerId)?.name ?? '...'}`;
 		const choice = g.pendingChoice;
 		if (choice?.type === 'snapGive') {
@@ -358,6 +377,23 @@
 		}
 	}
 
+	function cardPoints(card: Card): number {
+		if (card.rank === 'K') return card.suit === 'hearts' || card.suit === 'diamonds' ? 12 : 0;
+		if (card.rank === 'Q') return 11;
+		if (card.rank === 'J') return -1;
+		return parseInt(card.rank, 10);
+	}
+
+	function cardAbilityText(card: Card): string {
+		if (card.rank === '7' || card.rank === '8') return 'Peek at one of your own cards';
+		if (card.rank === '9' || card.rank === '10') return 'Spy on an opponent card';
+		if (card.rank === 'Q') return 'Blind swap with any opponent card';
+		if (card.rank === 'K' && (card.suit === 'hearts' || card.suit === 'diamonds')) {
+			return 'Looky-looky swap — peek at an opponent card, then choose to swap or decline';
+		}
+		return 'No special ability';
+	}
+
 	function cardHint(): string {
 		const g = gameState;
 		if (!g) return '';
@@ -376,6 +412,7 @@
 			return 'Choose Swap or Decline';
 		}
 		if (g.status !== 'playing') return '';
+		if (g.pendingEndGame) return 'Click any face-down card to snap before the game ends';
 		if (selectMode) {
 			if (selectMode === 'peek') return 'Click one of your face-down cards to peek';
 			return 'Click an opponent face-down card to spy';
@@ -527,6 +564,12 @@
 				</p>
 			{/if}
 
+			{#if gameState.pendingEndGame}
+				<div class="bg-orange-600/80 text-white rounded-lg px-4 py-2 font-bold animate-pulse text-center">
+					Final snap window — {pendingEndGameCountdown} seconds left
+				</div>
+			{/if}
+
 			<div class="flex flex-wrap gap-4 justify-center">
 				{#each [...gameState.players].sort((a, b) => a.id === gameState!.myPlayerId ? 1 : b.id === gameState!.myPlayerId ? -1 : 0) as player}
 					<div
@@ -641,11 +684,20 @@
 				</div>
 			{/if}
 
-			{#if isMyTurn() && !gameState.pendingChoice && !gameState.keeshWindow}
+			{#if isMyTurn() && !gameState.pendingChoice && !gameState.keeshWindow && !gameState.pendingEndGame}
 				{#if gameState.drawnCard}
 					<div class="flex flex-col items-center gap-3">
 						<p class="text-sm text-emerald-100">You drew:</p>
-						<CardComponent card={gameState.drawnCard} />
+						<div class="relative">
+							<CardComponent card={gameState.drawnCard} />
+							<button
+								onclick={() => (drawnCardInfo = gameState!.drawnCard)}
+								class="absolute -top-2 -right-2 w-6 h-6 bg-blue-500 hover:bg-blue-400 rounded-full text-white text-xs font-bold flex items-center justify-center shadow-lg touch-manipulation"
+								aria-label="Card info"
+							>
+								i
+							</button>
+						</div>
 						{#if gameState.drawnAction}
 							<p class="text-xs text-emerald-200">Discard to use the {actionLabel(gameState.drawnAction)} ability, or swap it into your hand</p>
 						{/if}
@@ -765,6 +817,18 @@
 		<div class="flex flex-col items-center gap-4 bg-purple-900 rounded-2xl p-8 shadow-2xl" onclick={(e) => e.stopPropagation()}>
 			<p class="font-semibold text-lg">🔄 {swapNotify.swappedBy} swapped your card #{swapNotify.cardIndex + 1}</p>
 			<p class="text-sm text-purple-200">Tap anywhere to dismiss</p>
+		</div>
+	</div>
+{/if}
+
+{#if drawnCardInfo}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onclick={() => (drawnCardInfo = null)}>
+		<div class="flex flex-col items-center gap-4 bg-slate-800 rounded-2xl p-8 shadow-2xl max-w-sm w-full mx-4" onclick={(e) => e.stopPropagation()}>
+			<p class="font-semibold text-lg">{drawnCardInfo.rank} of {drawnCardInfo.suit}</p>
+			<CardComponent card={drawnCardInfo} />
+			<p class="text-sm text-slate-200">Worth <strong>{cardPoints(drawnCardInfo)} points</strong> in your hand</p>
+			<p class="text-sm text-slate-300 text-center">{cardAbilityText(drawnCardInfo)}</p>
+			<p class="text-sm text-slate-400">Tap anywhere to close</p>
 		</div>
 	</div>
 {/if}

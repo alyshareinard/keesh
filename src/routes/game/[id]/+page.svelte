@@ -589,7 +589,7 @@
 			<div class="grid grid-cols-2 grid-flow-col gap-2 justify-items-center sm:flex sm:flex-wrap sm:justify-center">
 				{#each [...gameState.players].sort((a, b) => a.id === gameState!.myPlayerId ? 1 : b.id === gameState!.myPlayerId ? -1 : 0) as player}
 					<div
-						class="relative bg-black/20 rounded-xl p-2 pr-8 sm:p-4 sm:pr-10 min-w-0 sm:min-w-[12rem] {player.isCurrent
+						class="relative flex flex-col justify-between bg-black/20 rounded-xl p-2 pr-8 sm:p-4 sm:pr-10 min-w-0 sm:min-w-[12rem] {player.isCurrent
 							? 'ring-2 ring-emerald-400'
 							: ''}"
 					>
@@ -615,9 +615,8 @@
 						>
 							×
 						</button>
-						<p class="text-sm text-emerald-100 mb-2">{player.handCount} cards</p>
 						{#if player.id === gameState.myPlayerId}
-							<div class="flex flex-row-reverse gap-1 mt-1">
+							<div class="flex flex-row-reverse gap-1">
 								{#each cardColumns(gameState.myHand) as column, colIndex}
 									<div class="flex flex-col gap-1">
 										{#each column as card, rowIndex}

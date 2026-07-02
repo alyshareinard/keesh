@@ -111,8 +111,9 @@
 			}
 			gameState = s;
 		});
-		socket.on('spyResult', (r) => {
+		socket.on('spyResult', (r: { playerId: string; cardIndex: number; card: Card; duration: number }) => {
 			spyResult = r;
+			setTimeout(() => { spyResult = null; }, r.duration);
 		});
 		socket.on('peekReveal', (r: { cardIndex: number; card: Card; duration: number }) => {
 			peekReveal = { cardIndex: r.cardIndex, card: r.card };
@@ -606,7 +607,7 @@
 								onclick={callKeesh}
 								class="px-4 py-2 bg-green-500 hover:bg-green-400 text-black rounded-lg font-bold animate-pulse transition-colors touch-manipulation"
 							>
-								Keesh
+								Keesh?
 							</button>
 							<button
 								onclick={passKeesh}
@@ -640,23 +641,8 @@
 				</div>
 			{/if}
 
-			{#if isMyTurn() && !gameState.pendingChoice}
-				{#if gameState.keeshWindow?.playerId === gameState.myPlayerId}
-					<div class="flex gap-2 items-center">
-						<button
-							onclick={callKeesh}
-							class="px-4 py-2 bg-green-500 hover:bg-green-400 text-black rounded-lg font-bold animate-pulse transition-colors touch-manipulation"
-						>
-							Keesh
-						</button>
-						<button
-							onclick={passKeesh}
-							class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-bold transition-colors touch-manipulation"
-						>
-							Nah
-						</button>
-					</div>
-				{:else if gameState.drawnCard}
+			{#if isMyTurn() && !gameState.pendingChoice && !gameState.keeshWindow}
+				{#if gameState.drawnCard}
 					<div class="flex flex-col items-center gap-3">
 						<p class="text-sm text-emerald-100">You drew:</p>
 						<CardComponent card={gameState.drawnCard} />
@@ -718,21 +704,6 @@
 				<p class="text-emerald-100 text-sm">Wait for your turn — you can still snap!</p>
 			{/if}
 
-			{#if spyResult}
-				<div class="flex flex-col items-center gap-2 bg-black/20 rounded-xl p-3">
-					<p class="text-sm text-emerald-100">
-						Spied on {playerNameById(spyResult.playerId)} card #{spyResult.cardIndex + 1}:
-					</p>
-					<CardComponent card={spyResult.card} />
-					<button
-						onclick={() => (spyResult = null)}
-						class="px-3 py-1 text-sm bg-gray-600 hover:bg-gray-500 rounded transition-colors touch-manipulation"
-					>
-						Hide
-					</button>
-				</div>
-			{/if}
-
 			{#if gameState.log.length > 0}
 				<div class="w-full max-w-md bg-black/20 rounded-lg p-3 text-sm text-emerald-50">
 					{#each gameState.log.slice(-5) as entry}
@@ -750,6 +721,16 @@
 			<p class="font-semibold text-lg">Your card #{peekReveal.cardIndex + 1}</p>
 			<CardComponent card={peekReveal.card} />
 			<p class="text-sm text-emerald-200">Tap anywhere to close</p>
+		</div>
+	</div>
+{/if}
+
+{#if spyResult}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onclick={() => (spyResult = null)}>
+		<div class="flex flex-col items-center gap-4 bg-blue-900 rounded-2xl p-8 shadow-2xl" onclick={(e) => e.stopPropagation()}>
+			<p class="font-semibold text-lg">Spied on {playerNameById(spyResult.playerId)}'s card #{spyResult.cardIndex + 1}</p>
+			<CardComponent card={spyResult.card} />
+			<p class="text-sm text-blue-200">Tap anywhere to close</p>
 		</div>
 	</div>
 {/if}

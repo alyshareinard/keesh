@@ -4,6 +4,7 @@ import { Server } from 'socket.io';
 const SUITS = ['hearts', 'diamonds', 'clubs', 'spades'];
 const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
 const HAND_SIZE = 4;
+const KEESH_WINDOW_MS = 10000;
 
 function createDeck() {
 	return SUITS.flatMap((suit) => RANKS.map((rank) => ({ suit, rank })));
@@ -247,8 +248,9 @@ function lookAtCard(game, socket, cardIndex) {
 	}
 	player.knownCards[cardIndex] = false;
 	player.looked = true;
-	log(game, `${player.name} looked at a card`);
+	log(game, `${player.name} looked at their card ${cardIndex + 1}`);
 	socket.emit('peekReveal', { cardIndex, card: player.hand[cardIndex], duration: 3000 });
+	broadcastSwapHighlight(game, [{ playerId: player.id, cardIndex }]);
 	if (game.players.every((p) => p.looked)) {
 		game.status = 'playing';
 		log(game, 'All players ready. First turn begins.');
@@ -280,7 +282,7 @@ function finishTurnWithKeeshWindow(game, playerId) {
 		broadcastState(game);
 		return;
 	}
-	game.keeshWindow = { playerId: playerId, expiresAt: Date.now() + 5000 };
+	game.keeshWindow = { playerId: playerId, expiresAt: Date.now() + KEESH_WINDOW_MS };
 	broadcastState(game);
 	setTimeout(() => {
 		if (game.keeshWindow && game.keeshWindow.playerId === playerId) {
@@ -288,7 +290,7 @@ function finishTurnWithKeeshWindow(game, playerId) {
 			nextPlayer(game);
 			broadcastState(game);
 		}
-	}, 5000);
+	}, KEESH_WINDOW_MS);
 }
 
 function ensureDeck(game) {
@@ -434,7 +436,7 @@ function swapCard(game, socket, cardIndex) {
 	game.drawnCard = null;
 	game.drawnAction = null;
 	if (oldCard) game.discardPile.push(oldCard);
-	log(game, `${player.name} swapped a card`);
+	log(game, `${player.name} swapped their card ${cardIndex + 1} with the drawn card`);
 	broadcastSwapHighlight(game, [{ playerId: player.id, cardIndex }]);
 	finishTurnWithKeeshWindow(game, player.id);
 }
@@ -466,8 +468,9 @@ function peekCard(game, socket, cardIndex) {
 	}
 	game.pendingChoice = null;
 	player.knownCards[cardIndex] = false;
-	log(game, `${player.name} peeked at card ${cardIndex + 1}`);
+	log(game, `${player.name} peeked at their card ${cardIndex + 1}`);
 	player.socket.emit('peekReveal', { cardIndex, card: player.hand[cardIndex], duration: 3000 });
+	broadcastSwapHighlight(game, [{ playerId: player.id, cardIndex }]);
 	finishTurnWithKeeshWindow(game, player.id);
 }
 
@@ -505,10 +508,12 @@ function spyCard(game, socket, targetPlayerId, cardIndex) {
 	player.socket.emit('spyResult', {
 		playerId: targetPlayerId,
 		cardIndex,
-		card: target.hand[cardIndex]
+		card: target.hand[cardIndex],
+		duration: 3000
 	});
 	target.socket.emit('spyNotify', { cardIndex, spiedBy: player.name });
-	log(game, `${player.name} spied on a card`);
+	log(game, `${player.name} spied on ${target.name}'s card ${cardIndex + 1}`);
+	broadcastSwapHighlight(game, [{ playerId: target.id, cardIndex }]);
 	finishTurnWithKeeshWindow(game, player.id);
 }
 
@@ -598,24 +603,25 @@ function selectSwapOwnCard(game, socket, cardIndex) {
 		const target = game.players.find((p) => p.id === choice.targetPlayerId);
 		if (!target) return;
 		const ownIndex = cardIndex;
-		const targetCard = target.hand[choice.targetCardIndex];
+		const targetCardIndex = choice.targetCardIndex;
+		const targetCard = target.hand[targetCardIndex];
 		const playerCard = player.hand[ownIndex];
 		player.hand[ownIndex] = targetCard;
 		player.knownCards[ownIndex] = false;
-		target.hand[choice.targetCardIndex] = playerCard;
-		target.knownCards[choice.targetCardIndex] = false;
+		target.hand[targetCardIndex] = playerCard;
+		target.knownCards[targetCardIndex] = false;
 		game.pendingChoice = null;
-		log(game, `${player.name} blind-swapped a card with ${target.name}`);
-		broadcastSwapHighlight(game, [{ playerId: player.id, cardIndex: ownIndex }, { playerId: target.id, cardIndex: choice.targetCardIndex }]);
-		if (choice.targetCardIndex !== null) {
-			target.socket.emit('swapNotify', { cardIndex: choice.targetCardIndex, swappedBy: player.name });
+		log(game, `${player.name} blind-swapped their card ${ownIndex + 1} with ${target.name}'s card ${targetCardIndex + 1}`);
+		broadcastSwapHighlight(game, [{ playerId: player.id, cardIndex: ownIndex }, { playerId: target.id, cardIndex: targetCardIndex }]);
+		if (targetCardIndex !== null) {
+			target.socket.emit('swapNotify', { cardIndex: targetCardIndex, swappedBy: player.name });
 		}
 		nextPlayer(game);
 		broadcastState(game);
 		return;
 	}
 	choice.ownCardIndex = cardIndex;
-	log(game, `${player.name} chose a card to swap`);
+	log(game, `${player.name} chose their card ${cardIndex + 1} to swap`);
 	broadcastState(game);
 }
 
@@ -649,9 +655,16 @@ function selectSwapOpponentCard(game, socket, targetPlayerId, cardIndex) {
 	if (choice.type === 'lookyLookySwap') {
 		choice.targetCard = target.hand[cardIndex];
 		target.socket.emit('spyNotify', { cardIndex, spiedBy: player.name });
-		log(game, `${player.name} peeked at ${target.name}'s card and is deciding`);
+		player.socket.emit('spyResult', {
+			playerId: target.id,
+			cardIndex,
+			card: target.hand[cardIndex],
+			duration: 3000
+		});
+		log(game, `${player.name} peeked at ${target.name}'s card ${cardIndex + 1} and is deciding`);
+		broadcastSwapHighlight(game, [{ playerId: target.id, cardIndex }]);
 	} else {
-		log(game, `${player.name} chose an opponent card to swap with`);
+		log(game, `${player.name} chose ${target.name}'s card ${cardIndex + 1} to swap with`);
 	}
 	broadcastState(game);
 }
@@ -677,12 +690,12 @@ function resolveLookyLookySwap(game, socket, swap) {
 		player.knownCards[ownCardIndex] = false;
 		target.hand[targetCardIndex] = playerCard;
 		target.knownCards[targetCardIndex] = false;
-		log(game, `${player.name} completed the looky-looky swap`);
+		log(game, `${player.name} swapped their card ${ownCardIndex + 1} with ${target.name}'s card ${targetCardIndex + 1} (looky-looky)`);
 		game.pendingChoice = null;
 		broadcastSwapHighlight(game, [{ playerId: player.id, cardIndex: ownCardIndex }, { playerId: target.id, cardIndex: targetCardIndex }]);
 		target.socket.emit('swapNotify', { cardIndex: targetCardIndex, swappedBy: player.name });
 	} else {
-		log(game, `${player.name} declined the looky-looky swap`);
+		log(game, `${player.name} declined the looky-looky swap of ${target.name}'s card ${targetCardIndex + 1}`);
 		game.pendingChoice = null;
 	}
 	nextPlayer(game);
@@ -703,26 +716,26 @@ function snapCard(game, socket, targetPlayerId, cardIndex) {
 		socket.emit('error', 'Game not in progress');
 		return;
 	}
-	if (game.keeshCallerId) {
-		socket.emit('error', 'Snapping is frozen — Keesh has been called');
-		return;
-	}
 	if (game.pendingChoice) {
 		socket.emit('error', 'Cannot snap while another action is pending');
-		return;
-	}
-	if (game.drawnCard) {
-		socket.emit('error', 'Cannot snap while a card is drawn');
 		return;
 	}
 	if (game.discardPile.length === 0) {
 		socket.emit('error', 'Nothing to snap yet');
 		return;
 	}
+	if (game.keeshCallerId && snapper.id === game.keeshCallerId) {
+		socket.emit('error', 'Your hand is frozen — you called Keesh');
+		return;
+	}
 	const targetRank = game.discardPile[game.discardPile.length - 1].rank;
 	const target = game.players.find((p) => p.id === targetPlayerId);
 	if (!target || cardIndex < 0 || cardIndex >= target.hand.length) {
 		socket.emit('error', 'Invalid snap target');
+		return;
+	}
+	if (game.keeshCallerId && target.id === game.keeshCallerId) {
+		socket.emit('error', "Can't snap from the Keesh caller's frozen hand");
 		return;
 	}
 	const card = target.hand[cardIndex];
@@ -744,11 +757,13 @@ function snapCard(game, socket, targetPlayerId, cardIndex) {
 	}
 	removeCardFromHand(target, cardIndex);
 	game.discardPile.push(card);
-	log(game, `${snapper.name} snapped ${card.rank} of ${card.suit} from ${target.name}`);
+	log(game, `${snapper.name} snapped ${card.rank} of ${card.suit} from ${target.name}'s card ${cardIndex + 1}`);
 	checkAutomaticKeesh(game, target);
 	if (target.id !== snapper.id && game.status === 'playing') {
 		const previousPlayerIndex = game.currentPlayerIndex;
 		const savedKeeshWindow = game.keeshWindow;
+		const savedDrawnCard = game.drawnCard;
+		const savedDrawnAction = game.drawnAction;
 		game.currentPlayerIndex = game.players.findIndex((p) => p.id === snapper.id);
 		game.drawnCard = null;
 		game.drawnAction = null;
@@ -759,7 +774,9 @@ function snapCard(game, socket, targetPlayerId, cardIndex) {
 			targetPlayerId: target.id,
 			targetSlotIndex: cardIndex,
 			previousPlayerIndex,
-			savedKeeshWindow
+			savedKeeshWindow,
+			savedDrawnCard,
+			savedDrawnAction
 		};
 		broadcastState(game);
 		return;
@@ -797,9 +814,13 @@ function selectSnapGiveCard(game, socket, cardIndex) {
 	target.hand[choice.targetSlotIndex] = card;
 	target.knownCards[choice.targetSlotIndex] = false;
 	game.pendingChoice = null;
-	log(game, `${snapper.name} gave a card to ${target.name}`);
+	log(game, `${snapper.name} gave a card to ${target.name}'s slot ${choice.targetSlotIndex + 1}`);
 	checkAutomaticKeesh(game, snapper);
 	game.currentPlayerIndex = choice.previousPlayerIndex;
+	if (choice.savedDrawnCard) {
+		game.drawnCard = choice.savedDrawnCard;
+		game.drawnAction = choice.savedDrawnAction || null;
+	}
 	if (choice.savedKeeshWindow && choice.savedKeeshWindow.expiresAt > Date.now()) {
 		game.keeshWindow = choice.savedKeeshWindow;
 		const remaining = choice.savedKeeshWindow.expiresAt - Date.now();

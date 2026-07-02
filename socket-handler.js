@@ -164,33 +164,52 @@ function broadcastSwapHighlight(game, slots) {
 	}
 }
 
-function addPlayer(game, socket, playerName) {
+function reconnectPlayer(game, socket, existing, newName) {
+	const oldId = existing.id;
+	socketRoom.delete(oldId);
+	existing.id = socket.id;
+	existing.name = newName;
+	existing.socket = socket;
+	existing.disconnected = false;
+	if (game.totalScores[socket.id] === undefined && game.totalScores[oldId] !== undefined) {
+		game.totalScores[socket.id] = game.totalScores[oldId];
+		delete game.totalScores[oldId];
+	}
+	socket.join(game.id);
+	socketRoom.set(socket.id, game.id);
+	broadcastState(game);
+}
+
+function addPlayer(game, socket, playerName, playerId) {
 	if (game.players.find((p) => p.id === socket.id)) return;
 	const name = playerName || `Player ${game.players.length + 1}`;
-	if (game.status === 'waiting' && game.players.find((p) => p.name === name)) {
-		socket.emit('nameTaken', { name });
-		return;
-	}
-	if (game.status !== 'waiting') {
-		const existing = game.players.find((p) => p.name === name);
+
+	if (playerId) {
+		const existing = game.players.find((p) => p.playerId === playerId);
 		if (existing) {
-			const oldId = existing.id;
-			socketRoom.delete(oldId);
-			existing.id = socket.id;
-			existing.socket = socket;
-			existing.disconnected = false;
-			if (game.totalScores[socket.id] === undefined && game.totalScores[oldId] !== undefined) {
-				game.totalScores[socket.id] = game.totalScores[oldId];
-				delete game.totalScores[oldId];
-			}
-			socket.join(game.id);
-			socketRoom.set(socket.id, game.id);
-			broadcastState(game);
+			reconnectPlayer(game, socket, existing, name);
 			return;
 		}
 	}
+
+	if (game.status !== 'waiting') {
+		const existing = game.players.find((p) => p.name === name);
+		if (existing) {
+			reconnectPlayer(game, socket, existing, name);
+			return;
+		}
+		socket.emit('error', 'Game already started — use the same name/device to reconnect');
+		return;
+	}
+
+	if (game.players.find((p) => p.name === name)) {
+		socket.emit('nameTaken', { name });
+		return;
+	}
+
 	game.players.push({
 		id: socket.id,
+		playerId: playerId || null,
 		name,
 		hand: [],
 		knownCards: [],
@@ -202,6 +221,58 @@ function addPlayer(game, socket, playerName) {
 	}
 	socket.join(game.id);
 	socketRoom.set(socket.id, game.id);
+	broadcastState(game);
+}
+
+function removePlayer(game, socket, targetPlayerId) {
+	const remover = game.players.find((p) => p.id === socket.id);
+	if (!remover) return;
+	const targetIndex = game.players.findIndex((p) => p.id === targetPlayerId);
+	if (targetIndex === -1) {
+		socket.emit('error', 'Player not found');
+		return;
+	}
+	const target = game.players[targetIndex];
+
+	if (game.status !== 'waiting') {
+		if (targetIndex === game.currentPlayerIndex) {
+			game.drawnCard = null;
+			game.drawnAction = null;
+			game.pendingChoice = null;
+			game.keeshWindow = null;
+			if (game.pendingEndGame) {
+				clearTimeout(game.pendingEndGame.timer);
+				game.pendingEndGame = null;
+			}
+		}
+		if (game.keeshCallerId === target.id) {
+			game.keeshCallerId = null;
+		}
+	}
+
+	socketRoom.delete(target.id);
+	delete game.totalScores[target.id];
+	game.players.splice(targetIndex, 1);
+
+	if (game.players.length === 0) {
+		games.delete(game.id);
+		return;
+	}
+
+	if (targetIndex < game.currentPlayerIndex) {
+		game.currentPlayerIndex--;
+	}
+	if (game.currentPlayerIndex >= game.players.length) {
+		game.currentPlayerIndex = 0;
+	}
+	if (targetIndex < game.dealerIndex) {
+		game.dealerIndex--;
+	}
+	if (game.dealerIndex >= game.players.length) {
+		game.dealerIndex = 0;
+	}
+
+	log(game, `${remover.name} removed ${target.name} from the game`);
 	broadcastState(game);
 }
 
@@ -1017,9 +1088,15 @@ function startNextRound(game, resetTotals = false) {
 export default function injectSocketIO(server) {
 	const io = new Server(server);
 	io.on('connection', (socket) => {
-		socket.on('join', ({ roomId, playerName }) => {
+		socket.on('join', ({ roomId, playerName, playerId }) => {
 			const game = getOrCreateGame(roomId);
-			addPlayer(game, socket, playerName);
+			addPlayer(game, socket, playerName, playerId);
+		});
+		socket.on('removePlayer', ({ targetPlayerId }) => {
+			const roomId = socketRoom.get(socket.id);
+			if (!roomId) return;
+			const game = games.get(roomId);
+			if (game) removePlayer(game, socket, targetPlayerId);
 		});
 		socket.on('start', () => {
 			const roomId = socketRoom.get(socket.id);

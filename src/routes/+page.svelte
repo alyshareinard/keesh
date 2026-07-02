@@ -1,17 +1,38 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { onMount } from 'svelte';
 
 	let playerName = $state('');
 	let roomCode = $state('');
+	let playerId = $state('');
+
+	const NAME_KEY = 'keesh-player-name';
+	const ID_KEY = 'keesh-player-id';
+
+	function generateId() {
+		return Math.random().toString(36).slice(2) + Date.now().toString(36);
+	}
+
+	function savePlayer() {
+		localStorage.setItem(NAME_KEY, playerName || 'Player 1');
+		localStorage.setItem(ID_KEY, playerId);
+	}
+
+	onMount(() => {
+		playerName = localStorage.getItem(NAME_KEY) || '';
+		playerId = localStorage.getItem(ID_KEY) || generateId();
+	});
 
 	function createGame() {
 		const code = Math.random().toString(36).slice(2, 8).toUpperCase();
-		goto(`/game/${code}?name=${encodeURIComponent(playerName || 'Player 1')}`);
+		savePlayer();
+		goto(`/game/${code}?name=${encodeURIComponent(playerName || 'Player 1')}&pid=${playerId}`);
 	}
 
 	function joinGame() {
 		if (!roomCode.trim()) return;
-		goto(`/game/${roomCode.trim().toUpperCase()}?name=${encodeURIComponent(playerName || 'Player 1')}`);
+		savePlayer();
+		goto(`/game/${roomCode.trim().toUpperCase()}?name=${encodeURIComponent(playerName || 'Player 1')}&pid=${playerId}`);
 	}
 </script>
 

@@ -77,6 +77,7 @@
 
 	let roomId = $derived(page.params.id);
 	let playerName = $derived(page.url.searchParams.get('name') || 'Player');
+	let playerId = $derived(page.url.searchParams.get('pid') || '');
 
 	let gameState: GameState | null = $state(null);
 	let connected = $state(false);
@@ -99,11 +100,11 @@
 		if (!socket) return;
 		if (socket.connected) {
 			connected = true;
-			socket.emit('join', { roomId, playerName });
+			socket.emit('join', { roomId, playerName, playerId });
 		}
 		socket.on('connect', () => {
 			connected = true;
-			socket.emit('join', { roomId, playerName });
+			socket.emit('join', { roomId, playerName, playerId });
 		});
 		socket.on('disconnect', () => {
 			connected = false;
@@ -179,6 +180,10 @@
 
 	function start() {
 		client?.emit('start');
+	}
+
+	function removePlayer(targetPlayerId: string) {
+		client?.emit('removePlayer', { targetPlayerId });
 	}
 
 	function look(cardIndex: number) {
@@ -601,6 +606,12 @@
 							{#if player.disconnected}
 								<span class="text-xs bg-red-500/30 text-red-300 px-1.5 py-0.5 rounded">Away</span>
 							{/if}
+							<button
+								onclick={() => removePlayer(player.id)}
+								class="ml-auto text-xs bg-red-600 hover:bg-red-500 text-white px-2 py-1 rounded shrink-0 touch-manipulation"
+							>
+								Remove
+							</button>
 						</h2>
 						<p class="text-sm text-emerald-100 mb-2">{player.handCount} cards</p>
 						{#if player.id === gameState.myPlayerId}

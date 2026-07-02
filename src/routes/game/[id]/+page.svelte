@@ -586,7 +586,7 @@
 				</div>
 			{/if}
 
-			<div class="grid grid-rows-2 grid-flow-col gap-2 sm:gap-4 auto-cols-min sm:flex sm:flex-wrap sm:justify-center">
+			<div class="grid grid-cols-2 grid-flow-col gap-2 justify-items-center sm:flex sm:flex-wrap sm:justify-center">
 				{#each [...gameState.players].sort((a, b) => a.id === gameState!.myPlayerId ? 1 : b.id === gameState!.myPlayerId ? -1 : 0) as player}
 					<div
 						class="relative bg-black/20 rounded-xl p-2 pr-8 sm:p-4 sm:pr-10 min-w-0 sm:min-w-[12rem] {player.isCurrent

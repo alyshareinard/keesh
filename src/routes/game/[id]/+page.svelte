@@ -26,15 +26,17 @@
 		| {
 				type: 'blindSwap';
 				playerId: string;
+				targetPlayerId: string | null;
+				targetCardIndex: number | null;
 				ownCardIndex: number | null;
 		  }
 		| {
 				type: 'lookyLookySwap';
 				playerId: string;
-				ownCardIndex: number | null;
-				targetPlayerId?: string | null;
-				targetCardIndex?: number | null;
+				targetPlayerId: string | null;
+				targetCardIndex: number | null;
 				targetCard?: Card;
+				ownCardIndex: number | null;
 		  }
 		| {
 				type: 'snapGive';
@@ -86,6 +88,7 @@
 	let spyNotify: { cardIndex: number; spiedBy: string } | null = $state(null);
 	let swapHighlights: { playerId: string; cardIndex: number }[] = $state([]);
 	let keeshCalledBy: string | null = $state(null);
+	let swapNotify: { cardIndex: number; swappedBy: string } | null = $state(null);
 
 	onMount(async () => {
 		const socket = await getSocket();
@@ -131,6 +134,10 @@
 			keeshCalledBy = r.callerName;
 			setTimeout(() => { keeshCalledBy = null; }, 6000);
 		});
+		socket.on('swapNotify', (r: { cardIndex: number; swappedBy: string }) => {
+			swapNotify = r;
+			setTimeout(() => { swapNotify = null; }, 4000);
+		});
 		socket.on('error', (msg: string) => {
 			alert(msg);
 		});
@@ -147,6 +154,7 @@
 		client.off('spyNotify');
 		client.off('swapHighlight');
 		client.off('keeshCalled');
+		client.off('swapNotify');
 		client.off('error');
 	});
 
@@ -258,11 +266,11 @@
 			peek(cardIndex);
 			return;
 		}
-		if (choice?.type === 'blindSwap' && choice.ownCardIndex === null) {
+		if (choice?.type === 'blindSwap' && choice.targetPlayerId !== null && choice.ownCardIndex === null) {
 			selectSwapOwnCard(cardIndex);
 			return;
 		}
-		if (choice?.type === 'lookyLookySwap' && choice.ownCardIndex === null) {
+		if (choice?.type === 'lookyLookySwap' && choice.targetPlayerId !== null && choice.ownCardIndex === null) {
 			selectSwapOwnCard(cardIndex);
 			return;
 		}
@@ -283,16 +291,12 @@
 			spy(playerId, cardIndex);
 			return;
 		}
-		if (choice?.type === 'blindSwap') {
-			if (choice.ownCardIndex !== null) {
-				selectSwapOpponentCard(playerId, cardIndex);
-			}
+		if (choice?.type === 'blindSwap' && choice.targetPlayerId === null) {
+			selectSwapOpponentCard(playerId, cardIndex);
 			return;
 		}
-		if (choice?.type === 'lookyLookySwap') {
-			if (choice.ownCardIndex !== null && choice.targetPlayerId == null) {
-				selectSwapOpponentCard(playerId, cardIndex);
-			}
+		if (choice?.type === 'lookyLookySwap' && choice.targetPlayerId === null) {
+			selectSwapOpponentCard(playerId, cardIndex);
 			return;
 		}
 		if (selectMode === 'spy') {
@@ -325,13 +329,13 @@
 			return `Choose a card to give to ${playerNameById(choice.targetPlayerId)}`;
 		}
 			if (choice?.type === 'blindSwap') {
-			if (choice.ownCardIndex === null) return 'Select one of your face-down cards to swap';
-			return 'Select an opponent face-down card to swap';
+			if (choice.targetPlayerId === null) return 'Select an opponent face-down card to swap';
+			return 'Select one of your face-down cards to swap';
 		}
 		if (choice?.type === 'lookyLookySwap') {
+			if (choice.targetCardIndex === null) return 'Select an opponent face-down card to swap';
 			if (choice.ownCardIndex === null) return 'Select one of your face-down cards to swap';
-			if (choice.targetCard == null) return 'Select an opponent face-down card to swap';
-			return 'Swap or keep the opponent card?';
+			return 'Swap or decline the opponent card?';
 		}
 		if (g.keeshWindow?.playerId === g.myPlayerId) return 'Call Keesh now or pass';
 		if (g.drawnCard) return 'Your turn: choose an action with the drawn card';
@@ -362,13 +366,13 @@
 			return `Click one of your cards to give to ${playerNameById(choice.targetPlayerId)}`;
 		}
 		if (choice?.type === 'blindSwap') {
-			if (choice.ownCardIndex === null) return 'Click one of your face-down cards to swap';
-			return 'Click an opponent face-down card to swap';
+			if (choice.targetPlayerId === null) return 'Click an opponent face-down card to swap';
+			return 'Click one of your face-down cards to swap';
 		}
 		if (choice?.type === 'lookyLookySwap') {
+			if (choice.targetCardIndex === null) return 'Click an opponent face-down card to swap';
 			if (choice.ownCardIndex === null) return 'Click one of your face-down cards to swap';
-			if (choice.targetCard == null) return 'Click an opponent face-down card to swap';
-			return 'Choose Swap or Keep';
+			return 'Choose Swap or Decline';
 		}
 		if (g.status !== 'playing') return '';
 		if (selectMode) {
@@ -615,7 +619,7 @@
 				</div>
 			</div>
 
-			{#if gameState.pendingChoice?.type === 'lookyLookySwap' && gameState.pendingChoice.targetCard}
+			{#if gameState.pendingChoice?.type === 'lookyLookySwap' && gameState.pendingChoice.targetCard && gameState.pendingChoice.ownCardIndex !== null}
 				<div class="flex flex-col items-center gap-3 bg-black/20 rounded-xl p-4 max-w-md">
 					<p class="text-sm text-emerald-100">Looky-looky swap — opponent's card:</p>
 					<CardComponent card={gameState.pendingChoice.targetCard} />
@@ -630,7 +634,7 @@
 							onclick={() => resolveLookyLookySwap(false)}
 							class="px-4 py-2 bg-red-600 hover:bg-red-500 rounded-lg font-semibold transition-colors touch-manipulation"
 						>
-							Keep
+							Decline
 						</button>
 					</div>
 				</div>
@@ -692,14 +696,21 @@
 			{:else if gameState.pendingChoice?.playerId === gameState.myPlayerId && gameState.pendingChoice.type === 'blindSwap'}
 				<div class="flex flex-col items-center gap-2 bg-black/20 rounded-xl p-4 max-w-md w-full">
 					<p class="text-emerald-100 font-semibold">
-						{gameState.pendingChoice.ownCardIndex === null ? 'Blind swap: click one of your cards to swap' : 'Now click an opponent\'s card'}
+						{gameState.pendingChoice.targetPlayerId === null ? 'Blind swap: click an opponent\'s card' : 'Blind swap: now click one of your cards'}
 					</p>
 					<button onclick={skipAction} class="px-3 py-1 text-sm bg-gray-600 hover:bg-gray-500 rounded transition-colors touch-manipulation">Skip</button>
 				</div>
-			{:else if gameState.pendingChoice?.playerId === gameState.myPlayerId && gameState.pendingChoice.type === 'lookyLookySwap' && !gameState.pendingChoice.targetCard}
+			{:else if gameState.pendingChoice?.playerId === gameState.myPlayerId && gameState.pendingChoice.type === 'lookyLookySwap' && gameState.pendingChoice.targetCardIndex === null}
 				<div class="flex flex-col items-center gap-2 bg-black/20 rounded-xl p-4 max-w-md w-full">
 					<p class="text-emerald-100 font-semibold">
-						{gameState.pendingChoice.ownCardIndex === null ? 'Looky-looky: click one of your cards, then an opponent\'s' : 'Now click an opponent\'s card to reveal'}
+						Looky-looky: click an opponent's card to reveal
+					</p>
+					<button onclick={skipAction} class="px-3 py-1 text-sm bg-gray-600 hover:bg-gray-500 rounded transition-colors touch-manipulation">Skip</button>
+				</div>
+			{:else if gameState.pendingChoice?.playerId === gameState.myPlayerId && gameState.pendingChoice.type === 'lookyLookySwap' && gameState.pendingChoice.targetCardIndex !== null && gameState.pendingChoice.ownCardIndex === null}
+				<div class="flex flex-col items-center gap-2 bg-black/20 rounded-xl p-4 max-w-md w-full">
+					<p class="text-emerald-100 font-semibold">
+						Looky-looky: {gameState.pendingChoice.targetCard?.rank} of {gameState.pendingChoice.targetCard?.suit} revealed — now click one of your cards
 					</p>
 					<button onclick={skipAction} class="px-3 py-1 text-sm bg-gray-600 hover:bg-gray-500 rounded transition-colors touch-manipulation">Skip</button>
 				</div>
@@ -764,6 +775,15 @@
 			>
 				Got it
 			</button>
+		</div>
+	</div>
+{/if}
+
+{#if swapNotify}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onclick={() => (swapNotify = null)}>
+		<div class="flex flex-col items-center gap-4 bg-purple-900 rounded-2xl p-8 shadow-2xl" onclick={(e) => e.stopPropagation()}>
+			<p class="font-semibold text-lg">🔄 {swapNotify.swappedBy} swapped your card #{swapNotify.cardIndex + 1}</p>
+			<p class="text-sm text-purple-200">Tap anywhere to dismiss</p>
 		</div>
 	</div>
 {/if}

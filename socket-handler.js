@@ -380,11 +380,11 @@ function discardDrawn(game, socket) {
 		log(game, `${player.name} discarded a spy card — choosing a card to spy`);
 		broadcastState(game);
 	} else if (action === 'blindSwap') {
-		game.pendingChoice = { playerId: player.id, type: 'blindSwap', ownCardIndex: null };
+		game.pendingChoice = { playerId: player.id, type: 'blindSwap', targetPlayerId: null, targetCardIndex: null, ownCardIndex: null };
 		log(game, `${player.name} discarded and is choosing a blind swap`);
 		broadcastState(game);
 	} else if (action === 'lookyLookySwap') {
-		game.pendingChoice = { playerId: player.id, type: 'lookyLookySwap', ownCardIndex: null };
+		game.pendingChoice = { playerId: player.id, type: 'lookyLookySwap', targetPlayerId: null, targetCardIndex: null, ownCardIndex: null };
 		log(game, `${player.name} discarded and is choosing a looky-looky swap`);
 		broadcastState(game);
 	} else {
@@ -533,6 +533,8 @@ function blindSwap(game, socket) {
 	game.pendingChoice = {
 		playerId: player.id,
 		type: 'blindSwap',
+		targetPlayerId: null,
+		targetCardIndex: null,
 		ownCardIndex: null
 	};
 	log(game, `${player.name} discarded the queen and is choosing a blind swap`);
@@ -560,6 +562,8 @@ function lookyLookySwap(game, socket) {
 	game.pendingChoice = {
 		playerId: player.id,
 		type: 'lookyLookySwap',
+		targetPlayerId: null,
+		targetCardIndex: null,
 		ownCardIndex: null
 	};
 	log(game, `${player.name} discarded the red king and is choosing a looky-looky swap`);
@@ -577,6 +581,10 @@ function selectSwapOwnCard(game, socket, cardIndex) {
 		socket.emit('error', 'No swap in progress');
 		return;
 	}
+	if (game.pendingChoice.targetPlayerId === null || game.pendingChoice.targetCardIndex === null) {
+		socket.emit('error', 'Select an opponent card first');
+		return;
+	}
 	if (game.pendingChoice.ownCardIndex !== null) {
 		socket.emit('error', 'You already selected your card');
 		return;
@@ -585,7 +593,28 @@ function selectSwapOwnCard(game, socket, cardIndex) {
 		socket.emit('error', 'Invalid card');
 		return;
 	}
-	game.pendingChoice.ownCardIndex = cardIndex;
+	const choice = game.pendingChoice;
+	if (choice.type === 'blindSwap') {
+		const target = game.players.find((p) => p.id === choice.targetPlayerId);
+		if (!target) return;
+		const ownIndex = cardIndex;
+		const targetCard = target.hand[choice.targetCardIndex];
+		const playerCard = player.hand[ownIndex];
+		player.hand[ownIndex] = targetCard;
+		player.knownCards[ownIndex] = false;
+		target.hand[choice.targetCardIndex] = playerCard;
+		target.knownCards[choice.targetCardIndex] = false;
+		game.pendingChoice = null;
+		log(game, `${player.name} blind-swapped a card with ${target.name}`);
+		broadcastSwapHighlight(game, [{ playerId: player.id, cardIndex: ownIndex }, { playerId: target.id, cardIndex: choice.targetCardIndex }]);
+		if (choice.targetCardIndex !== null) {
+			target.socket.emit('swapNotify', { cardIndex: choice.targetCardIndex, swappedBy: player.name });
+		}
+		nextPlayer(game);
+		broadcastState(game);
+		return;
+	}
+	choice.ownCardIndex = cardIndex;
 	log(game, `${player.name} chose a card to swap`);
 	broadcastState(game);
 }
@@ -601,8 +630,8 @@ function selectSwapOpponentCard(game, socket, targetPlayerId, cardIndex) {
 		socket.emit('error', 'No swap in progress');
 		return;
 	}
-	if (game.pendingChoice.ownCardIndex === null) {
-		socket.emit('error', 'Select your own card first');
+	if (game.pendingChoice.targetPlayerId !== null || game.pendingChoice.targetCardIndex !== null) {
+		socket.emit('error', 'You already selected an opponent card');
 		return;
 	}
 	const target = game.players.find((p) => p.id === targetPlayerId);
@@ -614,30 +643,16 @@ function selectSwapOpponentCard(game, socket, targetPlayerId, cardIndex) {
 		socket.emit('error', "Can't swap with the keesh caller's cards");
 		return;
 	}
-	const ownIndex = game.pendingChoice.ownCardIndex;
-	if (game.pendingChoice.type === 'blindSwap') {
-		const playerCard = player.hand[ownIndex];
-		const targetCard = target.hand[cardIndex];
-		player.hand[ownIndex] = targetCard;
-		player.knownCards[ownIndex] = false;
-		target.hand[cardIndex] = playerCard;
-		target.knownCards[cardIndex] = false;
-		game.pendingChoice = null;
-		log(game, `${player.name} blind-swapped a card with ${target.name}`);
-		broadcastSwapHighlight(game, [{ playerId: player.id, cardIndex: ownIndex }, { playerId: target.id, cardIndex }]);
-		nextPlayer(game);
-		broadcastState(game);
-		return;
+	const choice = game.pendingChoice;
+	choice.targetPlayerId = targetPlayerId;
+	choice.targetCardIndex = cardIndex;
+	if (choice.type === 'lookyLookySwap') {
+		choice.targetCard = target.hand[cardIndex];
+		target.socket.emit('spyNotify', { cardIndex, spiedBy: player.name });
+		log(game, `${player.name} peeked at ${target.name}'s card and is deciding`);
+	} else {
+		log(game, `${player.name} chose an opponent card to swap with`);
 	}
-	game.pendingChoice = {
-		playerId: player.id,
-		type: 'lookyLookySwap',
-		ownCardIndex: ownIndex,
-		targetPlayerId,
-		targetCardIndex: cardIndex,
-		targetCard: target.hand[cardIndex]
-	};
-	log(game, `${player.name} peeked at ${target.name}'s card and is deciding`);
 	broadcastState(game);
 }
 
@@ -665,6 +680,7 @@ function resolveLookyLookySwap(game, socket, swap) {
 		log(game, `${player.name} completed the looky-looky swap`);
 		game.pendingChoice = null;
 		broadcastSwapHighlight(game, [{ playerId: player.id, cardIndex: ownCardIndex }, { playerId: target.id, cardIndex: targetCardIndex }]);
+		target.socket.emit('swapNotify', { cardIndex: targetCardIndex, swappedBy: player.name });
 	} else {
 		log(game, `${player.name} declined the looky-looky swap`);
 		game.pendingChoice = null;

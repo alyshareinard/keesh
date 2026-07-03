@@ -616,7 +616,7 @@
 							×
 						</button>
 						{#if player.id === gameState.myPlayerId}
-							<div class="flex flex-row-reverse gap-1">
+							<div class="flex flex-row gap-1">
 								{#each cardColumns(gameState.myHand) as column, colIndex}
 									<div class="flex flex-col gap-1">
 										{#each column as card, rowIndex}
@@ -643,7 +643,7 @@
 								{/each}
 							</div>
 						{:else}
-							<div class="flex flex-row-reverse gap-1">
+							<div class="flex flex-row gap-1">
 								{#each cardColumns(player.handSlots) as column, colIndex}
 									<div class="flex flex-col gap-1">
 										{#each column as occupied, rowIndex}

@@ -23,8 +23,15 @@
 		playerId = localStorage.getItem(ID_KEY) || generateId();
 	});
 
+	function generateCode(length = 6) {
+		const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+		let code = '';
+		for (let i = 0; i < length; i++) code += chars[Math.floor(Math.random() * chars.length)];
+		return code;
+	}
+
 	function createGame() {
-		const code = Math.random().toString(36).slice(2, 8).toUpperCase();
+		const code = generateCode();
 		savePlayer();
 		goto(`/game/${code}?name=${encodeURIComponent(playerName || 'Player 1')}&pid=${playerId}`);
 	}

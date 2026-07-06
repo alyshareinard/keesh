@@ -717,8 +717,19 @@ function selectSwapOwnCard(game, socket, cardIndex) {
 		broadcastState(game);
 		return;
 	}
-	choice.ownCardIndex = cardIndex;
-	log(game, `${player.name} chose their card ${cardIndex + 1} to swap`);
+	const target2 = game.players.find((p) => p.id === choice.targetPlayerId);
+	if (!target2) return;
+	const ownCard = player.hand[cardIndex];
+	const targetCard2 = target2.hand[choice.targetCardIndex];
+	player.hand[cardIndex] = targetCard2;
+	player.knownCards[cardIndex] = false;
+	target2.hand[choice.targetCardIndex] = ownCard;
+	target2.knownCards[choice.targetCardIndex] = false;
+	log(game, `${player.name} swapped their card ${cardIndex + 1} with ${target2.name}'s card ${choice.targetCardIndex + 1} (looky-looky)`);
+	game.pendingChoice = null;
+	broadcastSwapHighlight(game, [{ playerId: player.id, cardIndex }, { playerId: target2.id, cardIndex: choice.targetCardIndex }]);
+	target2.socket.emit('swapNotify', { cardIndex: choice.targetCardIndex, swappedBy: player.name });
+	nextPlayer(game);
 	broadcastState(game);
 }
 
@@ -848,7 +859,10 @@ function snapCard(game, socket, targetPlayerId, cardIndex) {
 		}
 		const penalty = game.deck.pop();
 		addCardToHand(snapper, penalty);
-		log(game, `${snapper.name} snapped wrong and drew a penalty`);
+		log(game, `${snapper.name} snapped wrong — tried ${card.rank} of ${card.suit} from ${target.name}'s slot ${cardIndex + 1} (not a match!)`);
+		for (const p of game.players) {
+			p.socket.emit('snapPenalty', { snapper: snapper.name, card, targetName: target.name, cardIndex });
+		}
 		broadcastState(game);
 		return;
 	}

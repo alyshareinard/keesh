@@ -94,6 +94,10 @@
 	let pendingEndGameCountdown = $state(0);
 	let drawnCardInfo: Card | null = $state(null);
 	let confirmRemovePlayerId: string | null = $state(null);
+	let snapPending: { playerId: string; cardIndex: number } | null = $state(null);
+	let snapPendingTimer: ReturnType<typeof setTimeout> | null = null;
+	let confirmKeesh = $state(false);
+	let snapPenaltyNotify: { snapper: string; card: Card; targetName: string; cardIndex: number } | null = $state(null);
 
 	onMount(async () => {
 		const socket = await getSocket();
@@ -106,6 +110,10 @@
 		socket.on('connect', () => {
 			connected = true;
 			socket.emit('join', { roomId, playerName, playerId });
+		});
+		socket.on('snapPenalty', (data) => {
+			snapPenaltyNotify = data;
+			setTimeout(() => { snapPenaltyNotify = null; }, 4000);
 		});
 		socket.on('disconnect', () => {
 			connected = false;
@@ -162,6 +170,7 @@
 		client.off('keeshCalled');
 		client.off('swapNotify');
 		client.off('error');
+		client.off('snapPenalty');
 	});
 
 	$effect(() => {
@@ -181,6 +190,11 @@
 
 	function start() {
 		client?.emit('start');
+	}
+
+	function callKeeshConfirmed() {
+		confirmKeesh = false;
+		client?.emit('keesh');
 	}
 
 	function removePlayer(targetPlayerId: string) {
@@ -245,7 +259,7 @@
 	}
 
 	function callKeesh() {
-		client?.emit('keesh');
+		confirmKeesh = true;
 	}
 
 	function passKeesh() {
@@ -329,7 +343,17 @@
 			selectMode = null;
 			return;
 		}
-		snap(playerId, cardIndex);
+		// Double-tap to snap
+		if (snapPending && snapPending.playerId === playerId && snapPending.cardIndex === cardIndex) {
+			if (snapPendingTimer) clearTimeout(snapPendingTimer);
+			snapPending = null;
+			snapPendingTimer = null;
+			snap(playerId, cardIndex);
+			return;
+		}
+		if (snapPendingTimer) clearTimeout(snapPendingTimer);
+		snapPending = { playerId, cardIndex };
+		snapPendingTimer = setTimeout(() => { snapPending = null; snapPendingTimer = null; }, 2000);
 	}
 
 	function isMyTurn() {
@@ -651,14 +675,18 @@
 											{#if occupied}
 												<button
 													onclick={() => handleOpponentCardClick(player.id, i)}
-													class="w-10 h-14 sm:w-12 sm:h-16 bg-blue-700 rounded border hover:bg-blue-500 transition-all touch-manipulation {swapHighlights.some((h) => h.playerId === player.id && h.cardIndex === i) ? 'border-orange-400 ring-2 ring-orange-400' : 'border-white/20'}"
+													class="w-10 h-14 sm:w-12 sm:h-16 bg-blue-700 rounded border hover:bg-blue-500 transition-all touch-manipulation flex flex-col items-center justify-end pb-1 {swapHighlights.some((h) => h.playerId === player.id && h.cardIndex === i) ? 'border-orange-400 ring-2 ring-orange-400' : snapPending?.playerId === player.id && snapPending?.cardIndex === i ? 'border-yellow-300 ring-2 ring-yellow-300' : 'border-white/20'}"
 													aria-label="Card {i + 1} from {player.name}"
-												></button>
+												>
+													<span class="text-xs text-white/70">{i + 1}</span>
+												</button>
 											{:else}
 												<div
-													class="w-10 h-14 sm:w-12 sm:h-16 rounded border border-white/10 bg-black/10"
+													class="w-10 h-14 sm:w-12 sm:h-16 rounded border border-white/10 bg-black/10 flex items-end justify-center pb-1"
 													aria-label="Empty slot {i + 1} from {player.name}"
-												></div>
+												>
+													<span class="text-xs text-white/30">{i + 1}</span>
+												</div>
 											{/if}
 										{/each}
 									</div>
@@ -700,26 +728,6 @@
 				</div>
 			</div>
 
-			{#if gameState.pendingChoice?.type === 'lookyLookySwap' && gameState.pendingChoice.targetCard && gameState.pendingChoice.ownCardIndex !== null}
-				<div class="flex flex-col items-center gap-3 bg-black/20 rounded-xl p-4 max-w-md">
-					<p class="text-sm text-emerald-100">Looky-looky swap — opponent's card:</p>
-					<CardComponent card={gameState.pendingChoice.targetCard} />
-					<div class="flex gap-2">
-						<button
-							onclick={() => resolveLookyLookySwap(true)}
-							class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg font-semibold transition-colors touch-manipulation"
-						>
-							Swap
-						</button>
-						<button
-							onclick={() => resolveLookyLookySwap(false)}
-							class="px-4 py-2 bg-red-600 hover:bg-red-500 rounded-lg font-semibold transition-colors touch-manipulation"
-						>
-							Decline
-						</button>
-					</div>
-				</div>
-			{/if}
 
 			{#if isMyTurn() && !gameState.pendingChoice && !gameState.keeshWindow && !gameState.pendingEndGame}
 				{#if gameState.drawnCard}
@@ -782,10 +790,10 @@
 					</p>
 					<button onclick={skipAction} class="px-3 py-1 text-sm bg-gray-600 hover:bg-gray-500 rounded transition-colors touch-manipulation">Skip</button>
 				</div>
-			{:else if gameState.pendingChoice?.playerId === gameState.myPlayerId && gameState.pendingChoice.type === 'lookyLookySwap' && gameState.pendingChoice.targetCardIndex !== null && gameState.pendingChoice.ownCardIndex === null}
+			{:else if gameState.pendingChoice?.playerId === gameState.myPlayerId && gameState.pendingChoice.type === 'lookyLookySwap' && gameState.pendingChoice.targetCardIndex !== null}
 				<div class="flex flex-col items-center gap-2 bg-black/20 rounded-xl p-4 max-w-md w-full">
 					<p class="text-emerald-100 font-semibold">
-						Looky-looky: {gameState.pendingChoice.targetCard?.rank} of {gameState.pendingChoice.targetCard?.suit} revealed — now click one of your cards
+						Looky-looky: {gameState.pendingChoice.targetCard?.rank} of {gameState.pendingChoice.targetCard?.suit} revealed — tap one of your cards to swap
 					</p>
 					<button onclick={skipAction} class="px-3 py-1 text-sm bg-gray-600 hover:bg-gray-500 rounded transition-colors touch-manipulation">Skip</button>
 				</div>
@@ -866,6 +874,39 @@
 			<p class="text-sm text-slate-200">Worth <strong>{cardPoints(drawnCardInfo)} points</strong> in your hand</p>
 			<p class="text-sm text-slate-300 text-center">{cardAbilityText(drawnCardInfo)}</p>
 			<p class="text-sm text-slate-400">Tap anywhere to close</p>
+		</div>
+	</div>
+{/if}
+
+{#if confirmKeesh}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onclick={() => (confirmKeesh = false)}>
+		<div class="flex flex-col items-center gap-4 bg-slate-800 rounded-2xl p-8 shadow-2xl max-w-sm w-full mx-4" onclick={(e) => e.stopPropagation()}>
+			<p class="font-semibold text-lg text-center">Call Keesh?</p>
+			<p class="text-sm text-slate-300 text-center">This will start the final round. Make sure your hand is low!</p>
+			<div class="flex gap-3 w-full">
+				<button
+					onclick={() => (confirmKeesh = false)}
+					class="flex-1 py-2 bg-slate-600 hover:bg-slate-500 rounded-lg font-semibold transition-colors touch-manipulation"
+				>
+					Cancel
+				</button>
+				<button
+					onclick={callKeeshConfirmed}
+					class="flex-1 py-2 bg-green-600 hover:bg-green-500 rounded-lg font-bold transition-colors touch-manipulation"
+				>
+					Yes, Keesh!
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+{#if snapPenaltyNotify}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 pointer-events-none">
+		<div class="flex flex-col items-center gap-3 bg-red-900 border-2 border-red-400 rounded-2xl p-6 shadow-2xl max-w-xs w-full mx-4">
+			<p class="font-bold text-lg text-red-200 text-center">❌ Wrong snap!</p>
+			<p class="text-sm text-red-100 text-center">{snapPenaltyNotify.snapper} tried {snapPenaltyNotify.targetName}'s slot {snapPenaltyNotify.cardIndex + 1}</p>
+			<CardComponent card={snapPenaltyNotify.card} />
 		</div>
 	</div>
 {/if}

@@ -811,10 +811,20 @@ function resolveLookyLookySwap(game, socket, swap) {
 }
 
 function checkAutomaticKeesh(game, player) {
-	if (player.hand.every((c) => c === null) && !game.keeshCallerId) {
-		log(game, `${player.name} has no cards left — automatic keesh!`);
-		callKeeshAutomatic(game, player);
-	}
+	if (!player.hand.every((c) => c === null) || game.keeshCallerId) return;
+	game.keeshWindow = { playerId: player.id, expiresAt: Date.now() + KEESH_WINDOW_MS };
+	log(game, `${player.name} has no cards left — they can call keesh for the bonus!`);
+	broadcastState(game);
+	setTimeout(() => {
+		if (game.keeshWindow && game.keeshWindow.playerId === player.id) {
+			game.keeshWindow = null;
+			if (!game.keeshCallerId) {
+				log(game, `${player.name} passed on keesh — automatic keesh, no bonus/penalty.`);
+				callKeeshAutomatic(game, player, true);
+				broadcastState(game);
+			}
+		}
+	}, KEESH_WINDOW_MS);
 }
 
 function snapCard(game, socket, targetPlayerId, cardIndex) {
@@ -1020,8 +1030,9 @@ function callKeesh(game, socket) {
 	_callKeesh(game, player);
 }
 
-function callKeeshAutomatic(game, player) {
+function callKeeshAutomatic(game, player, noBonus = false) {
 	if (game.status !== 'playing' || game.keeshCallerId) return;
+	game.automaticKeesh = noBonus;
 	_callKeesh(game, player);
 }
 
@@ -1036,7 +1047,7 @@ function endGame(game) {
 	for (const p of game.players) {
 		scores[p.id] = p.hand.reduce((sum, card) => sum + (card ? cardPoints(card) : 0), 0);
 	}
-	if (game.keeshCallerId) {
+	if (game.keeshCallerId && !game.automaticKeesh) {
 		const caller = game.players.find((p) => p.id === game.keeshCallerId);
 		const lowestScore = Math.min(...Object.values(scores));
 		const lowestPlayers = game.players.filter((p) => scores[p.id] === lowestScore);
@@ -1049,6 +1060,7 @@ function endGame(game) {
 			log(game, `${caller.name} loses keesh and gets the Pants penalty.`);
 		}
 	}
+	game.automaticKeesh = false;
 	game.finalScores = scores;
 	for (const p of game.players) {
 		game.totalScores[p.id] = (game.totalScores[p.id] || 0) + scores[p.id];

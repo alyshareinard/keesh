@@ -29,7 +29,7 @@
 	<span class="absolute top-1 left-1 text-sm sm:text-xs font-bold {colorClass}">
 		{card.rank}{symbol}
 	</span>
-<div class="flex flex-row items-center justify-center">
+<div class="flex flex-row items-center mt-6">
 	<span class="text-2xl font-bold {colorClass}">{card.rank}</span>
 	<span class="text-3xl {colorClass}">{symbol}</span>
 </div>

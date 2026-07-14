@@ -29,8 +29,8 @@
 	<span class="absolute top-1 left-1 text-sm sm:text-xs font-bold {colorClass}">
 		{card.rank}{symbol}
 	</span>
-	<span class="text-4xl sm:text-3xl {colorClass}">{symbol}</span>
-	<span class="text-2xl font-bold {colorClass} -mt-2">{card.rank}</span>
+	<span class="text-4xl sm:text-3xl {colorClass} mt+2">{symbol}</span>
+	<span class="text-2xl font-bold {colorClass} -mt-4">{card.rank}</span>
 	<span class="absolute bottom-1 right-1 text-sm sm:text-xs font-bold {colorClass} rotate-180">
 		{card.rank}{symbol}
 	</span>

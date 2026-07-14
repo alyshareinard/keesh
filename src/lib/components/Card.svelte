@@ -30,7 +30,7 @@
 		{card.rank}{symbol}
 	</span>
 <div class="flex flex-col items-center mt-4" >
-	<span class="text-4xl sm:text-3xl {colorClass}">{symbol}</span>
+	<span class="text-4xl {colorClass}">{symbol}</span>
 	<span class="text-2xl font-bold {colorClass}">{card.rank}</span>
 </div>
 	<span class="absolute bottom-1 right-1 text-sm sm:text-xs font-bold {colorClass} rotate-180">

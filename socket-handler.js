@@ -370,16 +370,23 @@ function startEndGameDelay(game) {
 }
 
 function finishTurnWithKeeshWindow(game, playerId) {
-	if (game.keeshCallerId) {
-		nextPlayer(game);
-		broadcastState(game);
-		return;
-	}
 	game.keeshWindow = { playerId: playerId, expiresAt: Date.now() + KEESH_WINDOW_MS };
 	broadcastState(game);
 	setTimeout(() => {
 		if (game.keeshWindow && game.keeshWindow.playerId === playerId) {
 			game.keeshWindow = null;
+			if (game.keeshCallerId && game.status === 'playing') {
+				const nextIndex = (game.currentPlayerIndex + 1) % game.players.length;
+				if (game.players[nextIndex].id === game.keeshCallerId) {
+					game.currentPlayerIndex = nextIndex;
+					game.drawnCard = null;
+					game.drawnAction = null;
+					game.pendingChoice = null;
+					startEndGameDelay(game);
+					broadcastState(game);
+					return;
+				}
+			}
 			nextPlayer(game);
 			broadcastState(game);
 		}
@@ -913,6 +920,10 @@ function snapCard(game, socket, targetPlayerId, cardIndex) {
 		broadcastState(game);
 		return;
 	}
+	// If we were in the final snap window and keesh was called, restart it
+	if (endGameAfterResolution === true && game.keeshCallerId && game.status === 'playing') {
+		startEndGameDelay(game);
+	}
 	broadcastState(game);
 }
 
@@ -957,6 +968,10 @@ function selectSnapGiveCard(game, socket, cardIndex) {
 		endGame(game);
 		broadcastState(game);
 		return;
+	}
+	// If we were in the final snap window and keesh was called, restart it
+	if (choice.endGameAfterResolution === true && game.keeshCallerId && game.status === 'playing') {
+		startEndGameDelay(game);
 	}
 	if (choice.savedKeeshWindow && choice.savedKeeshWindow.expiresAt > Date.now()) {
 		game.keeshWindow = choice.savedKeeshWindow;

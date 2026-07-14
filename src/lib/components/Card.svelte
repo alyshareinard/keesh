@@ -19,7 +19,7 @@
 
 <button
 	type="button"
-	class="relative w-16 h-24 sm:w-20 sm:h-28 bg-white rounded-lg shadow-md flex flex-col items-center justify-between p-1 transition-transform hover:-translate-y-2 focus:outline-none focus:ring-2 focus:ring-emerald-400 touch-manipulation"
+	class="relative w-16 h-24 sm:w-20 sm:h-28 bg-white rounded-lg shadow-md flex flex-col items-center justify-center p-1 transition-transform hover:-translate-y-2 focus:outline-none focus:ring-2 focus:ring-emerald-400 touch-manipulation"
 	class:ring-2={selected}
 	class:ring-emerald-400={selected}
 	class:-translate-y-3={selected}

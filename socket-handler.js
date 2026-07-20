@@ -364,22 +364,32 @@ function currentPlayer(game) {
 
 function nextPlayer(game) {
 	if (game.pendingEndGame) return;
-	if (game.keeshCallerId && game.status === 'playing') {
-		const nextIndex = (game.currentPlayerIndex + 1) % game.players.length;
-		if (game.players[nextIndex].id === game.keeshCallerId) {
-			game.currentPlayerIndex = nextIndex;
-			game.drawnCard = null;
-			game.drawnAction = null;
-			game.pendingChoice = null;
-			game.keeshWindow = null;
-			startEndGameDelay(game);
-			return;
-		}
-	}
-	game.currentPlayerIndex = (game.currentPlayerIndex + 1) % game.players.length;
 	game.drawnCard = null;
 	game.drawnAction = null;
 	game.pendingChoice = null;
+	if (game.keeshCallerId && game.status === 'playing') {
+		let steps = 0;
+		let nextIndex = game.currentPlayerIndex;
+		while (steps <= game.players.length) {
+			nextIndex = (nextIndex + 1) % game.players.length;
+			steps++;
+			if (game.players[nextIndex].id === game.keeshCallerId) {
+				game.currentPlayerIndex = nextIndex;
+				game.keeshWindow = null;
+				startEndGameDelay(game);
+				return;
+			}
+			if (game.players[nextIndex].hand.some((c) => c !== null)) {
+				game.currentPlayerIndex = nextIndex;
+				game.keeshWindow = null;
+				return;
+			}
+		}
+		// Fallback: all non-caller players are empty
+		game.currentPlayerIndex = (game.currentPlayerIndex + 1) % game.players.length;
+		return;
+	}
+	game.currentPlayerIndex = (game.currentPlayerIndex + 1) % game.players.length;
 }
 
 function startEndGameDelay(game) {

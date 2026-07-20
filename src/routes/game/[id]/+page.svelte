@@ -168,7 +168,6 @@ let chatLastSeenTimestamp = $state(0);
 		});
 		socket.on('swapNotify', (r: { cardIndex: number; swappedBy: string }) => {
 			swapNotify = r;
-			setTimeout(() => { swapNotify = null; }, 4000);
 		});
 		socket.on('error', (msg: string) => {
 			alert(msg);
@@ -905,10 +904,15 @@ let chatLastSeenTimestamp = $state(0);
 {/if}
 
 {#if swapNotify}
-	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onclick={() => (swapNotify = null)}>
-		<div class="flex flex-col items-center gap-4 bg-purple-900 rounded-2xl p-8 shadow-2xl" onclick={(e) => e.stopPropagation()}>
-			<p class="font-semibold text-lg">🔄 {swapNotify.swappedBy} swapped your card #{swapNotify.cardIndex + 1}</p>
-			<p class="text-sm text-purple-200">Tap anywhere to dismiss</p>
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+		<div class="flex flex-col items-center gap-4 bg-purple-900 rounded-2xl p-8 shadow-2xl max-w-xs w-full mx-4">
+			<p class="font-semibold text-lg text-center">🔄 {swapNotify.swappedBy} swapped your card #{swapNotify.cardIndex + 1}</p>
+			<button
+				onclick={() => (swapNotify = null)}
+				class="px-5 py-2 bg-purple-600 hover:bg-purple-500 rounded-lg font-semibold transition-colors touch-manipulation"
+			>
+				OK
+			</button>
 		</div>
 	</div>
 {/if}

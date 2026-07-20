@@ -52,7 +52,14 @@
 		expiresAt: number;
 	};
 
-	type GameState = {
+	type ChatMessage = {
+	playerId: string;
+	name: string;
+	text: string;
+	timestamp: number;
+};
+
+type GameState = {
 		id: string;
 		status: 'waiting' | 'looking' | 'playing' | 'finished';
 		myPlayerId: string;
@@ -73,6 +80,7 @@
 		pendingEndGame: { endsAt: number } | null;
 		revealedHands: { id: string; name: string; hand: (Card | null)[] }[] | null;
 		log: string[];
+	chat: ChatMessage[];
 	};
 
 	let roomId = $derived(page.params.id);
@@ -98,6 +106,10 @@
 	let snapPendingTimer: ReturnType<typeof setTimeout> | null = null;
 	let confirmKeesh = $state(false);
 	let snapPenaltyNotify: { snapper: string; card: Card; targetName: string; cardIndex: number } | null = $state(null);
+let chatOpen = $state(false);
+let chatInput = $state('');
+let chatUnreadCount = $state(0);
+let chatLastSeenTimestamp = $state(0);
 
 	onMount(async () => {
 		const socket = await getSocket();
@@ -121,6 +133,12 @@
 		socket.on('state', (s: GameState) => {
 			if (gameState && s.currentPlayerId !== gameState.currentPlayerId) {
 				spyResult = null;
+			}
+			const newMessages = s.chat.filter(
+				(m) => m.timestamp > chatLastSeenTimestamp && m.playerId !== s.myPlayerId
+			);
+			if (!chatOpen && newMessages.length > 0) {
+				chatUnreadCount = newMessages.length;
 			}
 			gameState = s;
 		});
@@ -264,6 +282,21 @@
 
 	function passKeesh() {
 		client?.emit('passKeesh');
+	}
+
+	function sendChat() {
+		const text = chatInput.trim();
+		if (!text || text.length > 200) return;
+		client?.emit('chatMessage', { text });
+		chatInput = '';
+	}
+
+	function toggleChat() {
+		chatOpen = !chatOpen;
+		if (chatOpen) {
+			chatUnreadCount = 0;
+			chatLastSeenTimestamp = Date.now();
+		}
 	}
 
 	function nextRound() {
@@ -481,6 +514,20 @@
 			>
 				{connected ? 'Online' : 'Offline'}
 			</span>
+			<button
+				onclick={toggleChat}
+				class="relative p-2 bg-black/30 hover:bg-black/40 rounded-full transition-colors touch-manipulation"
+				aria-label="Chat"
+			>
+				<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-emerald-100" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+					<path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+				</svg>
+				{#if chatUnreadCount > 0}
+					<span class="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full min-w-[1.25rem] h-5 flex items-center justify-center px-1">
+						{chatUnreadCount > 9 ? '9+' : chatUnreadCount}
+					</span>
+				{/if}
+			</button>
 			<button
 				onclick={leaveRoom}
 				class="px-3 py-1 text-xs bg-red-800/60 hover:bg-red-700 rounded transition-colors touch-manipulation"
@@ -709,7 +756,7 @@
 							Empty
 						</div>
 					{/if}
-					{#if gameState.keeshWindow?.playerId === gameState.myPlayerId}
+					{#if gameState.keeshWindow?.playerId === gameState.myPlayerId && !gameState.keeshCallerId}
 						<div class="flex flex-col gap-2">
 							<button
 								onclick={callKeesh}
@@ -936,6 +983,65 @@
 				>
 					Remove
 				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+{#if chatOpen}
+	<div class="fixed inset-0 z-40 flex flex-col justify-end bg-black/50" onclick={() => (chatOpen = false)}>
+		<div
+			class="flex flex-col h-[70vh] max-h-[500px] bg-slate-800 rounded-t-2xl shadow-2xl mx-2 sm:mx-auto sm:w-full sm:max-w-md"
+			onclick={(e) => e.stopPropagation()}
+		>
+			<div class="flex items-center justify-between p-3 border-b border-white/10">
+				<h3 class="font-semibold text-emerald-100">Chat</h3>
+				<button
+					onclick={() => (chatOpen = false)}
+					class="p-1 text-emerald-200 hover:text-white transition-colors touch-manipulation"
+					aria-label="Close chat"
+				>
+					<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+					</svg>
+				</button>
+			</div>
+			<div class="flex-1 overflow-y-auto p-3 space-y-2">
+				{#if gameState && gameState.chat.length > 0}
+					{#each gameState.chat as message}
+						<div class="flex flex-col {message.playerId === gameState.myPlayerId ? 'items-end' : 'items-start'}">
+							<span class="text-xs text-emerald-300 px-1">{message.name}</span>
+							<span class="text-sm bg-black/20 text-white px-3 py-1.5 rounded-lg max-w-[80%]">
+								{message.text}
+							</span>
+						</div>
+					{/each}
+				{:else}
+					<p class="text-sm text-emerald-200/60 text-center mt-4">No messages yet</p>
+				{/if}
+			</div>
+			<div class="p-3 border-t border-white/10">
+				<form
+					class="flex gap-2"
+					onsubmit={(e) => {
+						e.preventDefault();
+						sendChat();
+					}}
+				>
+					<input
+						bind:value={chatInput}
+						placeholder="Type a message..."
+						maxlength="200"
+						class="flex-1 px-3 py-2 rounded-lg bg-black/20 border border-white/20 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+					/>
+					<button
+						type="submit"
+						disabled={!chatInput.trim()}
+						class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-600/40 disabled:text-white/40 rounded-lg font-semibold transition-colors touch-manipulation"
+					>
+						Send
+					</button>
+				</form>
 			</div>
 		</div>
 	</div>

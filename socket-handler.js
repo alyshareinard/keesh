@@ -72,7 +72,8 @@ function getOrCreateGame(roomId) {
 			matchWinnerIds: null,
 			keeshWindow: null,
 			pendingEndGame: null,
-			log: []
+			log: [],
+			chat: []
 		});
 	}
 	return games.get(roomId);
@@ -106,6 +107,31 @@ function removeSocketFromGame(socket) {
 function log(game, message) {
 	game.log.push(message);
 	if (game.log.length > 20) game.log.shift();
+}
+
+function escapeHtml(text) {
+	return text
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;')
+		.replace(/"/g, '&quot;')
+		.replace(/'/g, '&#039;');
+}
+
+function chatMessage(game, playerId, text) {
+	const player = game.players.find((p) => p.id === playerId);
+	if (!player || !text || typeof text !== 'string') return;
+	const trimmed = text.trim();
+	if (trimmed.length === 0) return;
+	if (trimmed.length > 200) return;
+	game.chat.push({
+		playerId: player.id,
+		name: player.name,
+		text: escapeHtml(trimmed),
+		timestamp: Date.now()
+	});
+	if (game.chat.length > 100) game.chat.shift();
+	broadcastState(game);
 }
 
 function currentPlayerId(game) {
@@ -145,6 +171,7 @@ function getStateForPlayer(game, playerId) {
 		matchWinnerIds: game.matchWinnerIds,
 		keeshWindow: game.keeshWindow,
 		pendingEndGame: game.pendingEndGame ? { endsAt: game.pendingEndGame.endsAt } : null,
+		chat: game.chat,
 		revealedHands: game.status === 'finished'
 			? game.players.map((p) => ({ id: p.id, name: p.name, hand: p.hand }))
 			: null,
@@ -1240,6 +1267,12 @@ export default function injectSocketIO(server) {
 			if (!roomId) return;
 			const game = games.get(roomId);
 			if (game) passKeesh(game, socket);
+		});
+		socket.on('chatMessage', ({ text }) => {
+			const roomId = socketRoom.get(socket.id);
+			if (!roomId) return;
+			const game = games.get(roomId);
+			if (game) chatMessage(game, socket.id, text);
 		});
 		socket.on('nextRound', () => {
 			const roomId = socketRoom.get(socket.id);

@@ -856,6 +856,11 @@ function resolveLookyLookySwap(game, socket, swap) {
 
 function checkAutomaticKeesh(game, player) {
 	if (!player.hand.every((c) => c === null) || game.keeshCallerId) return;
+	if (currentPlayer(game).id !== player.id) {
+		log(game, `${player.name} has no cards left — automatic keesh, no bonus/penalty.`);
+		callKeeshAutomatic(game, player, true);
+		return;
+	}
 	game.keeshWindow = { playerId: player.id, expiresAt: Date.now() + KEESH_WINDOW_MS };
 	log(game, `${player.name} has no cards left — they can call keesh for the bonus!`);
 	broadcastState(game);
@@ -1034,6 +1039,7 @@ function _callKeesh(game, player) {
 	for (const p of game.players) {
 		p.socket.emit('keeshCalled', { callerName: player.name });
 	}
+	game.currentPlayerIndex = game.players.findIndex((p) => p.id === player.id);
 	nextPlayer(game);
 	broadcastState(game);
 }
@@ -1054,6 +1060,11 @@ function passKeesh(game, socket) {
 		return;
 	}
 	game.keeshWindow = null;
+	if (player.hand.every((c) => c === null)) {
+		log(game, `${player.name} passed on keesh — automatic keesh, no bonus/penalty.`);
+		callKeeshAutomatic(game, player, true);
+		return;
+	}
 	log(game, `${player.name} passed on keesh`);
 	nextPlayer(game);
 	broadcastState(game);

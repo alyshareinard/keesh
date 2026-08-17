@@ -67,6 +67,7 @@ function getOrCreateGame(roomId) {
 			drawnAction: null,
 			pendingChoice: null,
 			keeshCallerId: null,
+			keeshRoundAnchorId: null,
 			finalScores: null,
 			totalScores: {},
 			matchWinnerIds: null,
@@ -274,6 +275,7 @@ function removePlayer(game, socket, targetPlayerId) {
 		}
 		if (game.keeshCallerId === target.id) {
 			game.keeshCallerId = null;
+			game.keeshRoundAnchorId = null;
 		}
 	}
 
@@ -325,6 +327,7 @@ function startGame(game, socket) {
 	game.drawnAction = null;
 	game.pendingChoice = null;
 	game.keeshCallerId = null;
+	game.keeshRoundAnchorId = null;
 	game.finalScores = null;
 	game.status = 'looking';
 	log(game, `${game.players[0].name} deals. ${game.players[game.currentPlayerIndex].name} goes first.`);
@@ -373,7 +376,7 @@ function nextPlayer(game) {
 		while (steps <= game.players.length) {
 			nextIndex = (nextIndex + 1) % game.players.length;
 			steps++;
-			if (game.players[nextIndex].id === game.keeshCallerId) {
+			if (game.players[nextIndex].id === game.keeshRoundAnchorId) {
 				game.currentPlayerIndex = nextIndex;
 				game.keeshWindow = null;
 				startEndGameDelay(game);
@@ -412,18 +415,6 @@ function finishTurnWithKeeshWindow(game, playerId) {
 	setTimeout(() => {
 		if (game.keeshWindow && game.keeshWindow.playerId === playerId) {
 			game.keeshWindow = null;
-			if (game.keeshCallerId && game.status === 'playing') {
-				const nextIndex = (game.currentPlayerIndex + 1) % game.players.length;
-				if (game.players[nextIndex].id === game.keeshCallerId) {
-					game.currentPlayerIndex = nextIndex;
-					game.drawnCard = null;
-					game.drawnAction = null;
-					game.pendingChoice = null;
-					startEndGameDelay(game);
-					broadcastState(game);
-					return;
-				}
-			}
 			nextPlayer(game);
 			broadcastState(game);
 		}
@@ -857,8 +848,10 @@ function resolveLookyLookySwap(game, socket, swap) {
 function checkAutomaticKeesh(game, player) {
 	if (!player.hand.every((c) => c === null) || game.keeshCallerId) return;
 	if (currentPlayer(game).id !== player.id) {
-		log(game, `${player.name} has no cards left — automatic keesh, no bonus/penalty.`);
-		callKeeshAutomatic(game, player, true);
+		// Player emptied their hand out of turn (e.g. via a snap). Keesh triggers
+		// automatically, but play continues as normal starting with whoever is
+		// already up next; the empty-handed player is simply skipped going forward.
+		callKeeshAutomatic(game, player, true, { anchorId: currentPlayer(game).id, advanceTurn: false });
 		return;
 	}
 	game.keeshWindow = { playerId: player.id, expiresAt: Date.now() + KEESH_WINDOW_MS };
@@ -868,7 +861,6 @@ function checkAutomaticKeesh(game, player) {
 		if (game.keeshWindow && game.keeshWindow.playerId === player.id) {
 			game.keeshWindow = null;
 			if (!game.keeshCallerId) {
-				log(game, `${player.name} passed on keesh — automatic keesh, no bonus/penalty.`);
 				callKeeshAutomatic(game, player, true);
 				broadcastState(game);
 			}
@@ -1000,8 +992,8 @@ function selectSnapGiveCard(game, socket, cardIndex) {
 	target.knownCards[choice.targetSlotIndex] = false;
 	game.pendingChoice = null;
 	log(game, `${snapper.name} gave a card to ${target.name}'s slot ${choice.targetSlotIndex + 1}`);
-	checkAutomaticKeesh(game, snapper);
 	game.currentPlayerIndex = choice.previousPlayerIndex;
+	checkAutomaticKeesh(game, snapper);
 	if (choice.savedDrawnCard) {
 		game.drawnCard = choice.savedDrawnCard;
 		game.drawnAction = choice.savedDrawnAction || null;
@@ -1031,16 +1023,23 @@ function selectSnapGiveCard(game, socket, cardIndex) {
 	broadcastState(game);
 }
 
-function _callKeesh(game, player) {
+function _callKeesh(game, player, { anchorId = player.id, advanceTurn = true, automatic = false } = {}) {
 	if (game.keeshCallerId) return;
 	game.keeshWindow = null;
 	game.keeshCallerId = player.id;
-	log(game, `${player.name} called keesh!`);
-	for (const p of game.players) {
-		p.socket.emit('keeshCalled', { callerName: player.name });
+	game.keeshRoundAnchorId = anchorId;
+	if (automatic) {
+		log(game, `${player.name} has no cards left — automatic keesh called!`);
+	} else {
+		log(game, `${player.name} called keesh!`);
 	}
-	game.currentPlayerIndex = game.players.findIndex((p) => p.id === player.id);
-	nextPlayer(game);
+	for (const p of game.players) {
+		p.socket.emit('keeshCalled', { callerName: player.name, automatic });
+	}
+	if (advanceTurn) {
+		game.currentPlayerIndex = game.players.findIndex((p) => p.id === player.id);
+		nextPlayer(game);
+	}
 	broadcastState(game);
 }
 
@@ -1061,7 +1060,6 @@ function passKeesh(game, socket) {
 	}
 	game.keeshWindow = null;
 	if (player.hand.every((c) => c === null)) {
-		log(game, `${player.name} passed on keesh — automatic keesh, no bonus/penalty.`);
 		callKeeshAutomatic(game, player, true);
 		return;
 	}
@@ -1093,10 +1091,10 @@ function callKeesh(game, socket) {
 	_callKeesh(game, player);
 }
 
-function callKeeshAutomatic(game, player, noBonus = false) {
+function callKeeshAutomatic(game, player, noBonus = false, options = {}) {
 	if (game.status !== 'playing' || game.keeshCallerId) return;
 	game.automaticKeesh = noBonus;
-	_callKeesh(game, player);
+	_callKeesh(game, player, { anchorId: player.id, advanceTurn: true, automatic: true, ...options });
 }
 
 function endGame(game) {
@@ -1163,6 +1161,7 @@ function startNextRound(game, resetTotals = false) {
 	game.drawnAction = null;
 	game.pendingChoice = null;
 	game.keeshCallerId = null;
+	game.keeshRoundAnchorId = null;
 	game.finalScores = null;
 	game.keeshWindow = null;
 	if (game.pendingEndGame) {

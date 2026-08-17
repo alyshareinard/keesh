@@ -98,6 +98,7 @@ type GameState = {
 	let spyNotify: { cardIndex: number; spiedBy: string } | null = $state(null);
 	let swapHighlights: { playerId: string; cardIndex: number }[] = $state([]);
 	let keeshCalledBy: string | null = $state(null);
+	let keeshCalledAutomatic = $state(false);
 	let swapNotify: { cardIndex: number; swappedBy: string } | null = $state(null);
 	let pendingEndGameCountdown = $state(0);
 	let drawnCardInfo: Card | null = $state(null);
@@ -162,8 +163,9 @@ let chatLastSeenTimestamp = $state(0);
 			swapHighlights = slots;
 			setTimeout(() => { swapHighlights = []; }, 2000);
 		});
-		socket.on('keeshCalled', (r: { callerName: string }) => {
+		socket.on('keeshCalled', (r: { callerName: string; automatic?: boolean }) => {
 			keeshCalledBy = r.callerName;
+			keeshCalledAutomatic = !!r.automatic;
 			setTimeout(() => { keeshCalledBy = null; }, 6000);
 		});
 		socket.on('swapNotify', (r: { cardIndex: number; swappedBy: string }) => {
@@ -891,8 +893,13 @@ let chatLastSeenTimestamp = $state(0);
 	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onclick={() => (keeshCalledBy = null)}>
 		<div class="flex flex-col items-center gap-4 bg-amber-900 border-2 border-amber-400 rounded-2xl p-8 shadow-2xl max-w-sm w-full mx-4" onclick={(e) => e.stopPropagation()}>
 			<p class="text-4xl">🃏</p>
-			<p class="font-bold text-2xl text-amber-200 text-center">{keeshCalledBy} called Keesh!</p>
-			<p class="text-sm text-amber-300 text-center">One round left — everyone plays until it gets back to {keeshCalledBy}</p>
+			{#if keeshCalledAutomatic}
+				<p class="font-bold text-2xl text-amber-200 text-center">{keeshCalledBy} has no cards, automatic keesh called!</p>
+				<p class="text-sm text-amber-300 text-center">No bonus or penalty — one final round remains before the game ends.</p>
+			{:else}
+				<p class="font-bold text-2xl text-amber-200 text-center">{keeshCalledBy} called Keesh!</p>
+				<p class="text-sm text-amber-300 text-center">One round left — everyone plays until it gets back to {keeshCalledBy}</p>
+			{/if}
 			<button
 				onclick={() => (keeshCalledBy = null)}
 				class="mt-2 px-5 py-2 bg-amber-600 hover:bg-amber-500 rounded-lg font-semibold transition-colors touch-manipulation"

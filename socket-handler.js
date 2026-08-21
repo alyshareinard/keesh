@@ -748,8 +748,7 @@ function selectSwapOwnCard(game, socket, cardIndex) {
 		if (targetCardIndex !== null) {
 			target.socket.emit('swapNotify', { cardIndex: targetCardIndex, swappedBy: player.name });
 		}
-		nextPlayer(game);
-		broadcastState(game);
+		finishTurnWithKeeshWindow(game, player.id);
 		return;
 	}
 	const target2 = game.players.find((p) => p.id === choice.targetPlayerId);
@@ -764,8 +763,8 @@ function selectSwapOwnCard(game, socket, cardIndex) {
 	game.pendingChoice = null;
 	broadcastSwapHighlight(game, [{ playerId: player.id, cardIndex }, { playerId: target2.id, cardIndex: choice.targetCardIndex }]);
 	target2.socket.emit('swapNotify', { cardIndex: choice.targetCardIndex, swappedBy: player.name });
-	nextPlayer(game);
-	broadcastState(game);
+	finishTurnWithKeeshWindow(game, player.id);
+	return;
 }
 
 function selectSwapOpponentCard(game, socket, targetPlayerId, cardIndex) {
@@ -841,8 +840,7 @@ function resolveLookyLookySwap(game, socket, swap) {
 		log(game, `${player.name} declined the looky-looky swap of ${target.name}'s card ${targetCardIndex + 1}`);
 		game.pendingChoice = null;
 	}
-	nextPlayer(game);
-	broadcastState(game);
+	finishTurnWithKeeshWindow(game, player.id);
 }
 
 function checkAutomaticKeesh(game, player) {

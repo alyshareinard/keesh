@@ -906,6 +906,15 @@ function snapCard(game, socket, targetPlayerId, cardIndex) {
 			socket.emit('error', 'No cards to draw as penalty');
 			return;
 		}
+		const wrongSnapKey = `${targetPlayerId}-${cardIndex}`;
+		snapper.lastWrongSnapByCard = snapper.lastWrongSnapByCard || {};
+		const lastWrongSnap = snapper.lastWrongSnapByCard[wrongSnapKey];
+		if (lastWrongSnap && Date.now() - lastWrongSnap < 5000) {
+			log(game, `${snapper.name} snapped wrong again too quickly — no extra penalty`);
+			broadcastState(game);
+			return;
+		}
+		snapper.lastWrongSnapByCard[wrongSnapKey] = Date.now();
 		const penalty = game.deck.pop();
 		addCardToHand(snapper, penalty);
 		log(game, `${snapper.name} snapped wrong — tried ${card.rank} of ${card.suit} from ${target.name}'s slot ${cardIndex + 1} (not a match!)`);
@@ -944,6 +953,7 @@ function snapCard(game, socket, targetPlayerId, cardIndex) {
 			savedDrawnAction,
 			endGameAfterResolution
 		};
+		log(game, `${snapper.name} snapped a card and must click one of their own cards to give to ${target.name}`);
 		broadcastState(game);
 		return;
 	}

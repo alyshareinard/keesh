@@ -52,7 +52,7 @@
 	type RuleProposal = { rule: RuleKey; value: boolean; proposerId: string; approvals: string[] };
 
 	const HOUSE_RULES: { key: RuleKey; name: string; description: string }[] = [
-		{ key: 'fortyRule', name: '40 rule', description: '4 cards worth 40+ at the end of a round score that many negative points (Joker counts +13)' },
+		{ key: 'fortyRule', name: '40 rule', description: '4 cards worth 40+ at the end of a round score that many negative points (Joker counts +13). Not available if you took a penalty card that round' },
 		{ key: 'sixtyNine', name: '69 rule', description: 'A total of 96 after a round flips to 69, and 69 flips to 96' },
 		{ key: 'hundredRule', name: '100 rule', description: 'A total of exactly 100 after a round drops to 50' },
 		{ key: 'joker', name: 'Joker', description: 'One Joker is added to the deck, worth -2 points' }

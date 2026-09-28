@@ -458,6 +458,7 @@ function startGame(game, socket) {
 		p.hand = game.deck.splice(0, HAND_SIZE);
 		p.knownCards = new Array(HAND_SIZE).fill(false);
 		p.looked = false;
+		p.gotPenaltyThisRound = false;
 	}
 	game.discardPile = [];
 	game.dealerIndex = 0;
@@ -1073,6 +1074,7 @@ function snapCard(game, socket, targetPlayerId, cardIndex) {
 		snapper.lastWrongSnapByCard[wrongSnapKey] = Date.now();
 		const penalty = game.deck.pop();
 		addCardToHand(snapper, penalty);
+		snapper.gotPenaltyThisRound = true;
 		log(game, `${snapper.name} snapped wrong — tried ${cardLabel(card)} from ${target.name}'s slot ${cardIndex + 1} (not a match!)`);
 		for (const p of game.players) {
 			p.socket.emit('snapPenalty', { snapper: snapper.name, card, targetName: target.name, cardIndex });
@@ -1281,7 +1283,9 @@ function endGame(game) {
 	if (game.rules.fortyRule) {
 		for (const p of game.players) {
 			const cards = p.hand.filter((c) => c !== null);
-			if (cards.length !== 4) continue;
+			// Not available to anyone who took a penalty card this round, even if
+			// they've since got back down to 4 cards.
+			if (cards.length !== 4 || p.gotPenaltyThisRound) continue;
 			const fortyTotal = cards.reduce((sum, c) => sum + (c.rank === 'Joker' ? 13 : cardPoints(c)), 0);
 			if (fortyTotal >= 40) {
 				scores[p.id] = -fortyTotal;
@@ -1345,6 +1349,7 @@ function startNextRound(game, resetTotals = false) {
 		p.hand = game.deck.splice(0, HAND_SIZE);
 		p.knownCards = new Array(HAND_SIZE).fill(false);
 		p.looked = false;
+		p.gotPenaltyThisRound = false;
 	}
 	game.discardPile = [];
 	game.dealerIndex = (game.dealerIndex + 1) % game.players.length;

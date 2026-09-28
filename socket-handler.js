@@ -110,15 +110,6 @@ function log(game, message) {
 	if (game.log.length > 20) game.log.shift();
 }
 
-function escapeHtml(text) {
-	return text
-		.replace(/&/g, '&amp;')
-		.replace(/</g, '&lt;')
-		.replace(/>/g, '&gt;')
-		.replace(/"/g, '&quot;')
-		.replace(/'/g, '&#039;');
-}
-
 function chatMessage(game, playerId, text) {
 	const player = game.players.find((p) => p.id === playerId);
 	if (!player || !text || typeof text !== 'string') return;
@@ -128,7 +119,7 @@ function chatMessage(game, playerId, text) {
 	game.chat.push({
 		playerId: player.id,
 		name: player.name,
-		text: escapeHtml(trimmed),
+		text: trimmed,
 		timestamp: Date.now()
 	});
 	if (game.chat.length > 100) game.chat.shift();
@@ -849,6 +840,23 @@ function checkAutomaticKeesh(game, player) {
 		// Player emptied their hand out of turn (e.g. via a snap). Keesh triggers
 		// automatically, but play continues as normal starting with whoever is
 		// already up next; the empty-handed player is simply skipped going forward.
+		// If the current player has already finished their turn (their keesh
+		// window is open), that turn is used up, so the final round starts with
+		// the next player and the current player gets the last turn.
+		const turnFinished = game.keeshWindow && game.keeshWindow.playerId === currentPlayer(game).id;
+		if (turnFinished) {
+			game.keeshWindow = null;
+			let nextIndex = game.currentPlayerIndex;
+			do {
+				nextIndex = (nextIndex + 1) % game.players.length;
+			} while (
+				nextIndex !== game.currentPlayerIndex &&
+				(game.players[nextIndex].id === player.id || game.players[nextIndex].hand.every((c) => c === null))
+			);
+			game.currentPlayerIndex = nextIndex;
+			game.drawnCard = null;
+			game.drawnAction = null;
+		}
 		callKeeshAutomatic(game, player, true, { anchorId: currentPlayer(game).id, advanceTurn: false });
 		return;
 	}
@@ -932,7 +940,9 @@ function snapCard(game, socket, targetPlayerId, cardIndex) {
 	removeCardFromHand(target, cardIndex);
 	game.discardPile.push(card);
 	log(game, `${snapper.name} snapped ${card.rank} of ${card.suit} from ${target.name}'s card ${cardIndex + 1}`);
-	checkAutomaticKeesh(game, target);
+	// When snapping someone else's card, the snapper gives them a card back, so
+	// the target is never really out of cards; only a self-snap can empty a hand.
+	if (target.id === snapper.id) checkAutomaticKeesh(game, target);
 	if (target.id !== snapper.id && game.status === 'playing') {
 		const previousPlayerIndex = game.currentPlayerIndex;
 		const savedKeeshWindow = game.keeshWindow;
@@ -1001,7 +1011,6 @@ function selectSnapGiveCard(game, socket, cardIndex) {
 	game.pendingChoice = null;
 	log(game, `${snapper.name} gave a card to ${target.name}'s slot ${choice.targetSlotIndex + 1}`);
 	game.currentPlayerIndex = choice.previousPlayerIndex;
-	checkAutomaticKeesh(game, snapper);
 	if (choice.savedDrawnCard) {
 		game.drawnCard = choice.savedDrawnCard;
 		game.drawnAction = choice.savedDrawnAction || null;
@@ -1028,6 +1037,9 @@ function selectSnapGiveCard(game, socket, cardIndex) {
 	} else if (choice.savedKeeshWindow) {
 		nextPlayer(game);
 	}
+	// Check after restoring the interrupted turn so an out-of-turn keesh sees
+	// whether the current player's turn was already finished.
+	checkAutomaticKeesh(game, snapper);
 	broadcastState(game);
 }
 

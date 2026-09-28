@@ -59,6 +59,7 @@ function getOrCreateGame(roomId) {
 			id: roomId,
 			status: 'waiting',
 			players: [],
+			waitingPlayers: [],
 			deck: [],
 			discardPile: [],
 			dealerIndex: 0,
@@ -87,6 +88,17 @@ function removeSocketFromGame(socket) {
 	if (!game) return;
 	socketRoom.delete(socket.id);
 	socket.leave(roomId);
+	const waitingIndex = game.waitingPlayers.findIndex((p) => p.id === socket.id);
+	if (waitingIndex !== -1) {
+		const [waiting] = game.waitingPlayers.splice(waitingIndex, 1);
+		log(game, `${waiting.name} left before joining`);
+		if (game.players.length === 0 && game.waitingPlayers.length === 0) {
+			games.delete(roomId);
+		} else {
+			broadcastState(game);
+		}
+		return;
+	}
 	if (game.status === 'waiting') {
 		game.players = game.players.filter((p) => p.id !== socket.id);
 		if (game.players.length === 0) {
@@ -111,7 +123,7 @@ function log(game, message) {
 }
 
 function chatMessage(game, playerId, text) {
-	const player = game.players.find((p) => p.id === playerId);
+	const player = findPlayerOrWaiting(game, playerId);
 	if (!player || !text || typeof text !== 'string') return;
 	const trimmed = text.trim();
 	if (trimmed.length === 0) return;
@@ -131,14 +143,20 @@ function currentPlayerId(game) {
 	return game.players[game.currentPlayerIndex].id;
 }
 
+function findPlayerOrWaiting(game, playerId) {
+	return game.players.find((p) => p.id === playerId) || game.waitingPlayers.find((p) => p.id === playerId);
+}
+
 function getStateForPlayer(game, playerId) {
-	const player = game.players.find((p) => p.id === playerId);
+	const player = findPlayerOrWaiting(game, playerId);
 	if (!player) return null;
 	const isCurrent = currentPlayerId(game) === playerId;
 	return {
 		id: game.id,
 		status: game.status,
 		myPlayerId: playerId,
+		waitingToJoin: game.waitingPlayers.includes(player),
+		waitingPlayers: game.waitingPlayers.map((p) => ({ id: p.id, name: p.name })),
 		myHand: player.hand,
 		myKnownCards: player.knownCards,
 		drawnCard: game.drawnCard && isCurrent ? game.drawnCard : null,
@@ -172,7 +190,7 @@ function getStateForPlayer(game, playerId) {
 }
 
 function broadcastState(game) {
-	for (const player of game.players) {
+	for (const player of [...game.players, ...game.waitingPlayers]) {
 		player.socket.emit('state', getStateForPlayer(game, player.id));
 	}
 }
@@ -217,7 +235,7 @@ function addPlayer(game, socket, playerName, playerId) {
 			reconnectPlayer(game, socket, existing, name);
 			return;
 		}
-		socket.emit('error', 'Game already started — use the same name/device to reconnect');
+		addWaitingPlayer(game, socket, name, playerId);
 		return;
 	}
 
@@ -241,6 +259,52 @@ function addPlayer(game, socket, playerName, playerId) {
 	socket.join(game.id);
 	socketRoom.set(socket.id, game.id);
 	broadcastState(game);
+}
+
+// A player who joins mid-game waits until the next round is dealt, then is
+// seated with the average of the other players' total scores.
+function addWaitingPlayer(game, socket, name, playerId) {
+	let existing = playerId ? game.waitingPlayers.find((p) => p.playerId === playerId) : null;
+	if (!existing) {
+		const sameName = game.waitingPlayers.find((p) => p.name === name);
+		if (sameName && sameName.playerId && playerId && sameName.playerId !== playerId) {
+			socket.emit('nameTaken', { name });
+			return;
+		}
+		existing = sameName;
+	}
+	if (existing) {
+		socketRoom.delete(existing.id);
+		existing.id = socket.id;
+		existing.name = name;
+		existing.socket = socket;
+	} else {
+		game.waitingPlayers.push({ id: socket.id, playerId: playerId || null, name, socket });
+		log(game, `${name} will join at the start of the next round`);
+	}
+	socket.join(game.id);
+	socketRoom.set(socket.id, game.id);
+	broadcastState(game);
+}
+
+function admitWaitingPlayers(game) {
+	if (game.waitingPlayers.length === 0) return;
+	const totals = game.players.map((p) => game.totalScores[p.id] || 0);
+	const average = totals.length > 0 ? Math.round(totals.reduce((a, b) => a + b, 0) / totals.length) : 0;
+	for (const w of game.waitingPlayers) {
+		game.players.push({
+			id: w.id,
+			playerId: w.playerId,
+			name: w.name,
+			hand: [],
+			knownCards: [],
+			looked: false,
+			socket: w.socket
+		});
+		game.totalScores[w.id] = average;
+		log(game, `${w.name} joined the game with ${average} points`);
+	}
+	game.waitingPlayers = [];
 }
 
 function removePlayer(game, socket, targetPlayerId) {
@@ -1161,6 +1225,7 @@ function endGame(game) {
 }
 
 function startNextRound(game, resetTotals = false) {
+	admitWaitingPlayers(game);
 	if (resetTotals) {
 		game.totalScores = {};
 		for (const p of game.players) {

@@ -63,6 +63,8 @@ type GameState = {
 		id: string;
 		status: 'waiting' | 'looking' | 'playing' | 'finished';
 		myPlayerId: string;
+		waitingToJoin: boolean;
+		waitingPlayers: { id: string; name: string }[];
 		myHand: (Card | null)[];
 		myKnownCards: boolean[];
 		drawnCard: Card | null;
@@ -554,6 +556,21 @@ let chatLastSeenTimestamp = $state(0);
 			</div>
 		{:else if !gameState}
 			<p class="text-emerald-100">Connecting...</p>
+		{:else if gameState.waitingToJoin}
+			<div class="bg-black/30 rounded-2xl p-8 max-w-sm w-full text-center flex flex-col gap-3">
+				<p class="text-emerald-100 font-semibold text-lg">A round is in progress</p>
+				<p class="text-emerald-200 text-sm">
+					You'll be dealt in at the start of the next round, with a score equal to the average of the other players' totals.
+				</p>
+				<ul class="bg-black/20 rounded-lg p-3 space-y-1 text-sm">
+					{#each gameState.players as player}
+						<li class="flex justify-between">
+							<span>{player.name}</span>
+							<span class="text-emerald-200">{gameState.totalScores?.[player.id] ?? 0} pts</span>
+						</li>
+					{/each}
+				</ul>
+			</div>
 		{:else if gameState.status === 'waiting'}
 			<div class="text-center w-full max-w-sm">
 				<p class="mb-4 text-emerald-100">Waiting for players...</p>
@@ -627,6 +644,11 @@ let chatLastSeenTimestamp = $state(0);
 						</div>
 					</div>
 				{/if}
+				{#if gameState.waitingPlayers.length > 0}
+					<p class="text-emerald-200 text-sm mt-4">
+						Joining next round: {gameState.waitingPlayers.map((p) => p.name).join(', ')}
+					</p>
+				{/if}
 				{#if gameState.matchWinnerIds && gameState.matchWinnerIds.length > 0}
 					<button
 						onclick={newMatch}
@@ -649,6 +671,12 @@ let chatLastSeenTimestamp = $state(0);
 			{#if gameState.keeshCallerId}
 				<p class="text-amber-300 text-sm font-semibold">
 					Keesh called by {playerNameById(gameState.keeshCallerId)} — one more round!
+				</p>
+			{/if}
+
+			{#if gameState.waitingPlayers.length > 0}
+				<p class="text-emerald-200 text-xs">
+					Joining next round: {gameState.waitingPlayers.map((p) => p.name).join(', ')}
 				</p>
 			{/if}
 

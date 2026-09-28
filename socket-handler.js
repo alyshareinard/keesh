@@ -6,11 +6,31 @@ const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
 const HAND_SIZE = 4;
 const KEESH_WINDOW_MS = 10000;
 
+// Optional house rules; each can be toggled independently between rounds.
+const DEFAULT_RULES = {
+	fortyRule: false, // 4 cards worth 40+ at round end score negative
+	sixtyNine: false, // a total of 96 becomes 69 and vice versa
+	hundredRule: false, // a total of exactly 100 becomes 50
+	joker: false // one joker (-2, or +13 for the 40 rule) is added to the deck
+};
+const RULE_NAMES = {
+	fortyRule: '40 rule',
+	sixtyNine: '69 rule',
+	hundredRule: '100 rule',
+	joker: 'Joker'
+};
+
 function createDeck() {
 	return SUITS.flatMap((suit) => RANKS.map((rank) => ({ suit, rank })));
 }
 
-function buildDeck(playerCount) {
+function buildDeck(playerCount, rules = DEFAULT_RULES) {
+	const deck = buildStandardDeck(playerCount);
+	if (rules.joker) deck.push({ suit: 'joker', rank: 'Joker' });
+	return deck;
+}
+
+function buildStandardDeck(playerCount) {
 	const single = createDeck();
 	if (playerCount >= 7) {
 		return [...single, ...single];
@@ -35,11 +55,16 @@ function isRed(card) {
 }
 
 function cardPoints(card) {
+	if (card.rank === 'Joker') return -2;
 	if (card.rank === 'K') return isRed(card) ? 12 : 0;
 	if (card.rank === 'Q') return 11;
 	if (card.rank === 'J') return -1;
 	if (card.rank === 'A') return 1;
 	return parseInt(card.rank, 10);
+}
+
+function cardLabel(card) {
+	return card.rank === 'Joker' ? 'the Joker' : `${card.rank} of ${card.suit}`;
 }
 
 function drawnCardAction(card) {
@@ -72,6 +97,8 @@ function getOrCreateGame(roomId) {
 			finalScores: null,
 			totalScores: {},
 			matchWinnerIds: null,
+			rules: { ...DEFAULT_RULES },
+			ruleProposal: null,
 			keeshWindow: null,
 			pendingEndGame: null,
 			log: [],
@@ -111,6 +138,7 @@ function removeSocketFromGame(socket) {
 		if (player) {
 			player.disconnected = true;
 			log(game, `${player.name} disconnected (hand preserved)`);
+			resolveRuleProposal(game);
 			if (game.currentPlayerIndex >= game.players.length) game.currentPlayerIndex = 0;
 			broadcastState(game);
 		}
@@ -180,6 +208,8 @@ function getStateForPlayer(game, playerId) {
 		totalScores: game.totalScores,
 		matchWinnerIds: game.matchWinnerIds,
 		keeshWindow: game.keeshWindow,
+		rules: game.rules,
+		ruleProposal: game.ruleProposal,
 		pendingEndGame: game.pendingEndGame ? { endsAt: game.pendingEndGame.endsAt } : null,
 		chat: game.chat,
 		revealedHands: game.status === 'finished'
@@ -307,6 +337,58 @@ function admitWaitingPlayers(game) {
 	game.waitingPlayers = [];
 }
 
+function canChangeRules(game) {
+	return game.status === 'waiting' || game.status === 'finished';
+}
+
+function proposeRuleChange(game, socket, rule, value) {
+	const player = game.players.find((p) => p.id === socket.id);
+	if (!player) return;
+	if (!canChangeRules(game)) {
+		socket.emit('error', 'Rules can only be changed between rounds');
+		return;
+	}
+	if (!(rule in DEFAULT_RULES) || typeof value !== 'boolean') {
+		socket.emit('error', 'Unknown rule');
+		return;
+	}
+	if (game.ruleProposal) {
+		socket.emit('error', 'Another rule change is already being voted on');
+		return;
+	}
+	if (game.rules[rule] === value) return;
+	game.ruleProposal = { rule, value, proposerId: player.id, approvals: [player.id] };
+	log(game, `${player.name} proposes turning the ${RULE_NAMES[rule]} ${value ? 'on' : 'off'}`);
+	resolveRuleProposal(game);
+	broadcastState(game);
+}
+
+function voteRuleChange(game, socket, approve) {
+	const player = game.players.find((p) => p.id === socket.id);
+	const proposal = game.ruleProposal;
+	if (!player || !proposal) return;
+	if (!approve) {
+		game.ruleProposal = null;
+		log(game, `${player.name} rejected the ${RULE_NAMES[proposal.rule]} change`);
+		broadcastState(game);
+		return;
+	}
+	if (!proposal.approvals.includes(player.id)) proposal.approvals.push(player.id);
+	resolveRuleProposal(game);
+	broadcastState(game);
+}
+
+// Applies the pending rule change once every connected player has agreed.
+function resolveRuleProposal(game) {
+	const proposal = game.ruleProposal;
+	if (!proposal) return;
+	const voters = game.players.filter((p) => !p.disconnected);
+	if (!voters.every((p) => proposal.approvals.includes(p.id))) return;
+	game.rules[proposal.rule] = proposal.value;
+	game.ruleProposal = null;
+	log(game, `Everyone agreed — the ${RULE_NAMES[proposal.rule]} is now ${proposal.value ? 'on' : 'off'}`);
+}
+
 function removePlayer(game, socket, targetPlayerId) {
 	const remover = game.players.find((p) => p.id === socket.id);
 	if (!remover) return;
@@ -357,6 +439,7 @@ function removePlayer(game, socket, targetPlayerId) {
 	}
 
 	log(game, `${remover.name} removed ${target.name} from the game`);
+	resolveRuleProposal(game);
 	broadcastState(game);
 }
 
@@ -369,7 +452,8 @@ function startGame(game, socket) {
 		socket.emit('error', 'Need at least 2 players');
 		return;
 	}
-	game.deck = shuffle(buildDeck(game.players.length));
+	game.ruleProposal = null;
+	game.deck = shuffle(buildDeck(game.players.length, game.rules));
 	for (const p of game.players) {
 		p.hand = game.deck.splice(0, HAND_SIZE);
 		p.knownCards = new Array(HAND_SIZE).fill(false);
@@ -989,7 +1073,7 @@ function snapCard(game, socket, targetPlayerId, cardIndex) {
 		snapper.lastWrongSnapByCard[wrongSnapKey] = Date.now();
 		const penalty = game.deck.pop();
 		addCardToHand(snapper, penalty);
-		log(game, `${snapper.name} snapped wrong — tried ${card.rank} of ${card.suit} from ${target.name}'s slot ${cardIndex + 1} (not a match!)`);
+		log(game, `${snapper.name} snapped wrong — tried ${cardLabel(card)} from ${target.name}'s slot ${cardIndex + 1} (not a match!)`);
 		for (const p of game.players) {
 			p.socket.emit('snapPenalty', { snapper: snapper.name, card, targetName: target.name, cardIndex });
 		}
@@ -1003,7 +1087,7 @@ function snapCard(game, socket, targetPlayerId, cardIndex) {
 	}
 	removeCardFromHand(target, cardIndex);
 	game.discardPile.push(card);
-	log(game, `${snapper.name} snapped ${card.rank} of ${card.suit} from ${target.name}'s card ${cardIndex + 1}`);
+	log(game, `${snapper.name} snapped ${cardLabel(card)} from ${target.name}'s card ${cardIndex + 1}`);
 	// When snapping someone else's card, the snapper gives them a card back, so
 	// the target is never really out of cards; only a self-snap can empty a hand.
 	if (target.id === snapper.id) checkAutomaticKeesh(game, target);
@@ -1192,10 +1276,23 @@ function endGame(game) {
 	for (const p of game.players) {
 		scores[p.id] = p.hand.reduce((sum, card) => sum + (card ? cardPoints(card) : 0), 0);
 	}
+	// Keesh is decided on normal hand points, before the 40 rule is applied.
+	const keeshScores = { ...scores };
+	if (game.rules.fortyRule) {
+		for (const p of game.players) {
+			const cards = p.hand.filter((c) => c !== null);
+			if (cards.length !== 4) continue;
+			const fortyTotal = cards.reduce((sum, c) => sum + (c.rank === 'Joker' ? 13 : cardPoints(c)), 0);
+			if (fortyTotal >= 40) {
+				scores[p.id] = -fortyTotal;
+				log(game, `${p.name} has 4 cards worth ${fortyTotal} — 40 rule makes it -${fortyTotal}!`);
+			}
+		}
+	}
 	if (game.keeshCallerId && !game.automaticKeesh) {
 		const caller = game.players.find((p) => p.id === game.keeshCallerId);
-		const lowestScore = Math.min(...Object.values(scores));
-		const lowestPlayers = game.players.filter((p) => scores[p.id] === lowestScore);
+		const lowestScore = Math.min(...Object.values(keeshScores));
+		const lowestPlayers = game.players.filter((p) => keeshScores[p.id] === lowestScore);
 		const callerWins = caller && lowestPlayers.length === 1 && lowestPlayers[0].id === caller.id;
 		if (callerWins) {
 			scores[caller.id] -= 5;
@@ -1208,7 +1305,16 @@ function endGame(game) {
 	game.automaticKeesh = false;
 	game.finalScores = scores;
 	for (const p of game.players) {
-		game.totalScores[p.id] = (game.totalScores[p.id] || 0) + scores[p.id];
+		let total = (game.totalScores[p.id] || 0) + scores[p.id];
+		if (game.rules.sixtyNine && (total === 96 || total === 69)) {
+			const flipped = total === 96 ? 69 : 96;
+			log(game, `${p.name} hit ${total} — 69 rule flips it to ${flipped}!`);
+			total = flipped;
+		} else if (game.rules.hundredRule && total === 100) {
+			log(game, `${p.name} hit exactly 100 — 100 rule drops it to 50!`);
+			total = 50;
+		}
+		game.totalScores[p.id] = total;
 	}
 	const maxTotal = Math.max(...game.players.map((p) => game.totalScores[p.id]));
 	if (maxTotal >= 100) {
@@ -1226,6 +1332,7 @@ function endGame(game) {
 
 function startNextRound(game, resetTotals = false) {
 	admitWaitingPlayers(game);
+	game.ruleProposal = null;
 	if (resetTotals) {
 		game.totalScores = {};
 		for (const p of game.players) {
@@ -1233,7 +1340,7 @@ function startNextRound(game, resetTotals = false) {
 		}
 		game.matchWinnerIds = null;
 	}
-	game.deck = shuffle(buildDeck(game.players.length));
+	game.deck = shuffle(buildDeck(game.players.length, game.rules));
 	for (const p of game.players) {
 		p.hand = game.deck.splice(0, HAND_SIZE);
 		p.knownCards = new Array(HAND_SIZE).fill(false);
@@ -1390,6 +1497,18 @@ export default function injectSocketIO(server) {
 			if (!roomId) return;
 			const game = games.get(roomId);
 			if (game && game.status === 'finished' && game.matchWinnerIds) startNextRound(game, true);
+		});
+		socket.on('proposeRule', ({ rule, value }) => {
+			const roomId = socketRoom.get(socket.id);
+			if (!roomId) return;
+			const game = games.get(roomId);
+			if (game) proposeRuleChange(game, socket, rule, value);
+		});
+		socket.on('voteRule', ({ approve }) => {
+			const roomId = socketRoom.get(socket.id);
+			if (!roomId) return;
+			const game = games.get(roomId);
+			if (game) voteRuleChange(game, socket, approve);
 		});
 		socket.on('leave', () => {
 			removeSocketFromGame(socket);

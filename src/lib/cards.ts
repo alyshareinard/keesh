@@ -1,5 +1,5 @@
-export type Suit = 'hearts' | 'diamonds' | 'clubs' | 'spades';
-export type Rank = 'A' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '10' | 'J' | 'Q' | 'K';
+export type Suit = 'hearts' | 'diamonds' | 'clubs' | 'spades' | 'joker';
+export type Rank = 'A' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '10' | 'J' | 'Q' | 'K' | 'Joker';
 
 export interface Card {
 	suit: Suit;
@@ -23,6 +23,7 @@ export function isRed(card: Card): boolean {
 }
 
 export function cardPoints(card: Card): number {
+	if (card.rank === 'Joker') return -2;
 	if (card.rank === 'K') return isRed(card) ? 12 : 0;
 	if (card.rank === 'Q') return 11;
 	if (card.rank === 'J') return -1;
@@ -49,6 +50,8 @@ export function suitSymbol(suit: Suit): string {
 			return '♣';
 		case 'spades':
 			return '♠';
+		case 'joker':
+			return '★';
 	}
 }
 
@@ -57,5 +60,6 @@ export function suitColor(suit: Suit): 'red' | 'black' {
 }
 
 export function cardName(card: Card): string {
+	if (card.rank === 'Joker') return 'Joker';
 	return `${card.rank} of ${card.suit}`;
 }

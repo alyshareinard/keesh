@@ -12,9 +12,11 @@
 	} = $props();
 
 	const symbol = $derived(suitSymbol(card.suit));
+	const isJoker = $derived(card.rank === 'Joker');
 	const colorClass = $derived(
-		suitColor(card.suit) === 'red' ? 'text-red-600' : 'text-slate-900'
+		isJoker ? 'text-purple-700' : suitColor(card.suit) === 'red' ? 'text-red-600' : 'text-slate-900'
 	);
+	const cornerLabel = $derived(isJoker ? 'JK' : card.rank);
 </script>
 
 <button
@@ -27,13 +29,17 @@
 	onclick={() => onclick?.()}
 >
 	<span class="absolute top-1 left-1 text-sm sm:text-xs font-bold {colorClass}">
-		{card.rank}{symbol}
+		{cornerLabel}{symbol}
 	</span>
 <div class="flex flex-row items-center justify-center">
-	<span class="text-2xl font-bold {colorClass}">{card.rank}</span>
-	<span class="text-3xl {colorClass}">{symbol}</span>
+	{#if isJoker}
+		<span class="text-sm sm:text-base font-extrabold tracking-wide {colorClass}">JOKER</span>
+	{:else}
+		<span class="text-2xl font-bold {colorClass}">{card.rank}</span>
+		<span class="text-3xl {colorClass}">{symbol}</span>
+	{/if}
 </div>
 	<span class="absolute bottom-1 right-1 text-sm sm:text-xs font-bold {colorClass} rotate-180">
-		{card.rank}{symbol}
+		{cornerLabel}{symbol}
 	</span>
 </button>

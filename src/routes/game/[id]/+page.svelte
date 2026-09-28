@@ -2,7 +2,7 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { getSocket } from '$lib/socket';
-	import { type Card } from '$lib/cards';
+	import { type Card, cardName, cardPoints } from '$lib/cards';
 	import CardComponent from '$lib/components/Card.svelte';
 	import { onMount, onDestroy } from 'svelte';
 	import type { Socket } from 'socket.io-client';
@@ -47,6 +47,17 @@
 				savedKeeshWindow?: KeeshWindow | null;
 		  };
 
+	type RuleKey = 'fortyRule' | 'sixtyNine' | 'hundredRule' | 'joker';
+	type Rules = Record<RuleKey, boolean>;
+	type RuleProposal = { rule: RuleKey; value: boolean; proposerId: string; approvals: string[] };
+
+	const HOUSE_RULES: { key: RuleKey; name: string; description: string }[] = [
+		{ key: 'fortyRule', name: '40 rule', description: '4 cards worth 40+ at the end of a round score that many negative points (Joker counts +13)' },
+		{ key: 'sixtyNine', name: '69 rule', description: 'A total of 96 after a round flips to 69, and 69 flips to 96' },
+		{ key: 'hundredRule', name: '100 rule', description: 'A total of exactly 100 after a round drops to 50' },
+		{ key: 'joker', name: 'Joker', description: 'One Joker is added to the deck, worth -2 points' }
+	];
+
 	type KeeshWindow = {
 		playerId: string;
 		expiresAt: number;
@@ -79,6 +90,8 @@ type GameState = {
 		totalScores: Record<string, number>;
 		matchWinnerIds: string[] | null;
 		keeshWindow: KeeshWindow | null;
+		rules: Rules;
+		ruleProposal: RuleProposal | null;
 		pendingEndGame: { endsAt: number } | null;
 		revealedHands: { id: string; name: string; hand: (Card | null)[] }[] | null;
 		log: string[];
@@ -302,6 +315,18 @@ let chatLastSeenTimestamp = $state(0);
 		}
 	}
 
+	function proposeRule(rule: RuleKey, value: boolean) {
+		client?.emit('proposeRule', { rule, value });
+	}
+
+	function voteRule(approve: boolean) {
+		client?.emit('voteRule', { approve });
+	}
+
+	function ruleName(rule: RuleKey) {
+		return HOUSE_RULES.find((r) => r.key === rule)?.name ?? rule;
+	}
+
 	function nextRound() {
 		client?.emit('nextRound');
 	}
@@ -443,13 +468,6 @@ let chatLastSeenTimestamp = $state(0);
 		}
 	}
 
-	function cardPoints(card: Card): number {
-		if (card.rank === 'K') return card.suit === 'hearts' || card.suit === 'diamonds' ? 12 : 0;
-		if (card.rank === 'Q') return 11;
-		if (card.rank === 'J') return -1;
-		return parseInt(card.rank, 10);
-	}
-
 	function cardAbilityText(card: Card): string {
 		if (card.rank === '7' || card.rank === '8') return 'Peek at one of your own cards';
 		if (card.rank === '9' || card.rank === '10') return 'Spy on an opponent card';
@@ -506,6 +524,59 @@ let chatLastSeenTimestamp = $state(0);
 </script>
 
 
+
+{#snippet houseRulesPanel(g: GameState)}
+	{@const proposal = g.ruleProposal}
+	{@const voters = g.players.filter((p) => !p.disconnected)}
+	<div class="bg-black/20 rounded-lg p-4 text-left w-full mt-4">
+		<p class="text-xs uppercase tracking-wider text-emerald-200 mb-2">House rules</p>
+		<div class="space-y-2">
+			{#each HOUSE_RULES as rule}
+				<div class="flex items-start gap-3">
+					<button
+						type="button"
+						role="switch"
+						aria-checked={g.rules[rule.key]}
+						aria-label={rule.name}
+						disabled={!!proposal}
+						onclick={() => proposeRule(rule.key, !g.rules[rule.key])}
+						class="mt-0.5 shrink-0 w-10 h-6 rounded-full relative transition-colors touch-manipulation disabled:opacity-50 {g.rules[rule.key] ? 'bg-emerald-500' : 'bg-white/20'}"
+					>
+						<span class="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all {g.rules[rule.key] ? 'left-[1.125rem]' : 'left-0.5'}"></span>
+					</button>
+					<div>
+						<p class="font-semibold text-sm">{rule.name}</p>
+						<p class="text-xs text-emerald-100/80">{rule.description}</p>
+					</div>
+				</div>
+			{/each}
+		</div>
+		{#if proposal}
+			<div class="mt-3 bg-amber-500/15 border border-amber-400/30 rounded-lg p-3 text-sm">
+				<p>
+					<strong>{playerNameById(proposal.proposerId)}</strong> wants to turn the
+					<strong>{ruleName(proposal.rule)}</strong> {proposal.value ? 'on' : 'off'}
+					<span class="text-emerald-200">({proposal.approvals.length}/{voters.length} agreed)</span>
+				</p>
+				{#if proposal.approvals.includes(g.myPlayerId)}
+					<div class="flex items-center gap-2 mt-2">
+						<span class="text-xs text-emerald-100/80">Waiting for everyone to agree…</span>
+						{#if proposal.proposerId === g.myPlayerId}
+							<button onclick={() => voteRule(false)} class="ml-auto px-3 py-1 text-xs bg-white/10 hover:bg-white/20 rounded touch-manipulation">Cancel</button>
+						{/if}
+					</div>
+				{:else}
+					<div class="flex gap-2 mt-2">
+						<button onclick={() => voteRule(true)} class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 rounded font-semibold touch-manipulation">Agree</button>
+						<button onclick={() => voteRule(false)} class="px-3 py-1.5 bg-red-800/70 hover:bg-red-700 rounded font-semibold touch-manipulation">Reject</button>
+					</div>
+				{/if}
+			</div>
+		{:else}
+			<p class="text-xs text-emerald-100/60 mt-3">Tap a switch to propose a change — everyone has to agree.</p>
+		{/if}
+	</div>
+{/snippet}
 
 <div class="min-h-screen flex flex-col bg-green-900 text-white">
 	<header class="flex items-center justify-between p-4 bg-black/20">
@@ -595,6 +666,7 @@ let chatLastSeenTimestamp = $state(0);
 						Start game
 					</button>
 				{/if}
+				{@render houseRulesPanel(gameState)}
 			</div>
 		{:else if gameState.status === 'finished'}
 			<div class="text-center max-w-md">
@@ -664,6 +736,7 @@ let chatLastSeenTimestamp = $state(0);
 						Play another round
 					</button>
 				{/if}
+				{@render houseRulesPanel(gameState)}
 			</div>
 		{:else}
 			<p class="text-emerald-100 font-medium">{statusText()}</p>
@@ -671,6 +744,12 @@ let chatLastSeenTimestamp = $state(0);
 			{#if gameState.keeshCallerId}
 				<p class="text-amber-300 text-sm font-semibold">
 					Keesh called by {playerNameById(gameState.keeshCallerId)} — one more round!
+				</p>
+			{/if}
+
+			{#if HOUSE_RULES.some((r) => gameState!.rules[r.key])}
+				<p class="text-emerald-200 text-xs">
+					House rules: {HOUSE_RULES.filter((r) => gameState!.rules[r.key]).map((r) => r.name).join(' · ')}
 				</p>
 			{/if}
 
@@ -869,7 +948,7 @@ let chatLastSeenTimestamp = $state(0);
 			{:else if gameState.pendingChoice?.playerId === gameState.myPlayerId && gameState.pendingChoice.type === 'lookyLookySwap' && gameState.pendingChoice.targetCardIndex !== null}
 				<div class="flex flex-col items-center gap-2 bg-black/20 rounded-xl p-4 max-w-md w-full">
 					<p class="text-emerald-100 font-semibold">
-						Looky-looky: {gameState.pendingChoice.targetCard?.rank} of {gameState.pendingChoice.targetCard?.suit} revealed — tap one of your cards to swap
+						Looky-looky: {gameState.pendingChoice.targetCard ? cardName(gameState.pendingChoice.targetCard) : ''} revealed — tap one of your cards to swap
 					</p>
 					<button onclick={skipAction} class="px-3 py-1 text-sm bg-gray-600 hover:bg-gray-500 rounded transition-colors touch-manipulation">Skip</button>
 				</div>
@@ -955,7 +1034,7 @@ let chatLastSeenTimestamp = $state(0);
 {#if drawnCardInfo}
 	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onclick={() => (drawnCardInfo = null)}>
 		<div class="flex flex-col items-center gap-4 bg-slate-800 rounded-2xl p-8 shadow-2xl max-w-sm w-full mx-4" onclick={(e) => e.stopPropagation()}>
-			<p class="font-semibold text-lg">{drawnCardInfo.rank} of {drawnCardInfo.suit}</p>
+			<p class="font-semibold text-lg">{cardName(drawnCardInfo)}</p>
 			<CardComponent card={drawnCardInfo} />
 			<p class="text-sm text-slate-200">Worth <strong>{cardPoints(drawnCardInfo)} points</strong> in your hand</p>
 			<p class="text-sm text-slate-300 text-center">{cardAbilityText(drawnCardInfo)}</p>

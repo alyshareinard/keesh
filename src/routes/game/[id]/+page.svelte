@@ -47,7 +47,7 @@
 				savedKeeshWindow?: KeeshWindow | null;
 		  };
 
-	type RuleKey = 'fortyRule' | 'sixtyNine' | 'hundredRule' | 'joker';
+	type RuleKey = 'fortyRule' | 'sixtyNine' | 'hundredRule' | 'joker' | 'tripleJ';
 	type Rules = Record<RuleKey, boolean>;
 	type RuleProposal = { rule: RuleKey; value: boolean; proposerId: string; approvals: string[] };
 
@@ -55,7 +55,8 @@
 		{ key: 'fortyRule', name: '40 rule', description: '4 cards worth 40+ at the end of a round score that many negative points (Joker counts +13). Not available if you took a penalty card that round' },
 		{ key: 'sixtyNine', name: '69 rule', description: 'A total of 96 after a round flips to 69, and 69 flips to 96' },
 		{ key: 'hundredRule', name: '100 rule', description: 'A total of exactly 100 after a round drops to 50' },
-		{ key: 'joker', name: 'Joker', description: 'One Joker is added to the deck, worth -2 points' }
+		{ key: 'joker', name: 'Joker', description: 'One Joker is added to the deck, worth -2 points' },
+		{ key: 'tripleJ', name: 'TripleJ', description: 'A final hand of only 3 or 4 Jacks (one can be the Joker) scores 10× its points. Not available if you took a penalty card that round' }
 	];
 
 	type KeeshWindow = {

@@ -11,13 +11,15 @@ const DEFAULT_RULES = {
 	fortyRule: false, // 4 cards worth 40+ at round end score negative
 	sixtyNine: false, // a total of 96 becomes 69 and vice versa
 	hundredRule: false, // a total of exactly 100 becomes 50
-	joker: false // one joker (-2, or +13 for the 40 rule) is added to the deck
+	joker: false, // one joker (-2, or +13 for the 40 rule) is added to the deck
+	tripleJ: false // a hand of only 3-4 jacks (one may be the joker) scores 10x
 };
 const RULE_NAMES = {
 	fortyRule: '40 rule',
 	sixtyNine: '69 rule',
 	hundredRule: '100 rule',
-	joker: 'Joker'
+	joker: 'Joker',
+	tripleJ: 'TripleJ rule'
 };
 
 function createDeck() {
@@ -1291,6 +1293,16 @@ function endGame(game) {
 				scores[p.id] = -fortyTotal;
 				log(game, `${p.name} has 4 cards worth ${fortyTotal} — 40 rule makes it -${fortyTotal}!`);
 			}
+		}
+	}
+	if (game.rules.tripleJ) {
+		for (const p of game.players) {
+			const cards = p.hand.filter((c) => c !== null);
+			const jokers = cards.filter((c) => c.rank === 'Joker').length;
+			const allJacks = cards.every((c) => c.rank === 'J' || c.rank === 'Joker');
+			if (p.gotPenaltyThisRound || cards.length < 3 || cards.length > 4 || !allJacks || jokers > 1) continue;
+			scores[p.id] *= 10;
+			log(game, `${p.name} has TripleJ — their hand scores ${scores[p.id]}!`);
 		}
 	}
 	if (game.keeshCallerId && !game.automaticKeesh) {

@@ -82,12 +82,22 @@
 		</button>
 	</div>
 
-	<a
-		href="https://buymeacoffee.com/tech.aly"
-		target="_blank"
-		rel="noopener noreferrer"
-		class="mt-6 inline-flex items-center gap-2 px-4 py-2 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-400/30 rounded-lg text-sm text-amber-200 hover:text-amber-100 transition-colors touch-manipulation"
-	>
-		☕ Buy me a coffee
-	</a>
+	<div class="mt-6 flex flex-wrap justify-center gap-3">
+		<a
+			href="https://buymeacoffee.com/tech.aly"
+			target="_blank"
+			rel="noopener noreferrer"
+			class="inline-flex items-center gap-2 px-4 py-2 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-400/30 rounded-lg text-sm text-amber-200 hover:text-amber-100 transition-colors touch-manipulation"
+		>
+			☕ Buy me a coffee
+		</a>
+		<a
+			href="https://www.tech-aly.com"
+			target="_blank"
+			rel="noopener noreferrer"
+			class="inline-flex items-center gap-2 px-4 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-400/30 rounded-lg text-sm text-emerald-200 hover:text-emerald-100 transition-colors touch-manipulation"
+		>
+			💼 Hire me
+		</a>
+	</div>
 </div>

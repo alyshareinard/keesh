@@ -572,6 +572,13 @@ function ensureDeck(game) {
 	}
 }
 
+// Every regular discard (made on a player's turn) bumps discardCount, which is
+// what lifts a wrong-snap block.
+function discard(game, card) {
+	game.discardPile.push(card);
+	game.discardCount = (game.discardCount || 0) + 1;
+}
+
 function removeCardFromHand(player, cardIndex) {
 	player.hand[cardIndex] = null;
 	player.knownCards[cardIndex] = false;
@@ -644,7 +651,7 @@ function discardDrawn(game, socket) {
 		return;
 	}
 	const action = game.drawnAction;
-	game.discardPile.push(game.drawnCard);
+	discard(game, game.drawnCard);
 	game.drawnCard = null;
 	game.drawnAction = null;
 	if (action === 'peek') {
@@ -709,7 +716,7 @@ function swapCard(game, socket, cardIndex) {
 	player.knownCards[cardIndex] = false;
 	game.drawnCard = null;
 	game.drawnAction = null;
-	if (oldCard) game.discardPile.push(oldCard);
+	if (oldCard) discard(game, oldCard);
 	log(game, `${player.name} swapped their card ${cardIndex + 1} with the drawn card`);
 	broadcastSwapHighlight(game, [{ playerId: player.id, cardIndex }]);
 	finishTurnWithKeeshWindow(game, player.id);
@@ -736,7 +743,7 @@ function peekCard(game, socket, cardIndex) {
 		return;
 	}
 	if (!viaChoice) {
-		game.discardPile.push(game.drawnCard);
+		discard(game, game.drawnCard);
 		game.drawnCard = null;
 		game.drawnAction = null;
 	}
@@ -774,7 +781,7 @@ function spyCard(game, socket, targetPlayerId, cardIndex) {
 		return;
 	}
 	if (!viaChoice) {
-		game.discardPile.push(game.drawnCard);
+		discard(game, game.drawnCard);
 		game.drawnCard = null;
 		game.drawnAction = null;
 	}
@@ -806,7 +813,7 @@ function blindSwap(game, socket) {
 		socket.emit('error', 'No blind swap available');
 		return;
 	}
-	game.discardPile.push(game.drawnCard);
+	discard(game, game.drawnCard);
 	game.drawnCard = null;
 	game.drawnAction = null;
 	game.pendingChoice = {
@@ -835,7 +842,7 @@ function lookyLookySwap(game, socket) {
 		socket.emit('error', 'No looky-looky swap available');
 		return;
 	}
-	game.discardPile.push(game.drawnCard);
+	discard(game, game.drawnCard);
 	game.drawnCard = null;
 	game.drawnAction = null;
 	game.pendingChoice = {
@@ -1044,6 +1051,10 @@ function snapCard(game, socket, targetPlayerId, cardIndex) {
 		socket.emit('error', 'Your hand is frozen — you called Keesh');
 		return;
 	}
+	if (snapper.snapBlockedAt === game.discardCount) {
+		socket.emit('error', 'You snapped wrong on this card — wait for the next discard to snap again');
+		return;
+	}
 	const targetRank = game.discardPile[game.discardPile.length - 1].rank;
 	const target = game.players.find((p) => p.id === targetPlayerId);
 	if (!target || cardIndex < 0 || cardIndex >= target.hand.length) {
@@ -1065,15 +1076,7 @@ function snapCard(game, socket, targetPlayerId, cardIndex) {
 			socket.emit('error', 'No cards to draw as penalty');
 			return;
 		}
-		const wrongSnapKey = `${targetPlayerId}-${cardIndex}`;
-		snapper.lastWrongSnapByCard = snapper.lastWrongSnapByCard || {};
-		const lastWrongSnap = snapper.lastWrongSnapByCard[wrongSnapKey];
-		if (lastWrongSnap && Date.now() - lastWrongSnap < 5000) {
-			log(game, `${snapper.name} snapped wrong again too quickly — no extra penalty`);
-			broadcastState(game);
-			return;
-		}
-		snapper.lastWrongSnapByCard[wrongSnapKey] = Date.now();
+		snapper.snapBlockedAt = game.discardCount;
 		const penalty = game.deck.pop();
 		addCardToHand(snapper, penalty);
 		snapper.gotPenaltyThisRound = true;
@@ -1090,6 +1093,7 @@ function snapCard(game, socket, targetPlayerId, cardIndex) {
 		game.pendingEndGame = null;
 	}
 	removeCardFromHand(target, cardIndex);
+	// A snapped card doesn't count as a discard, so it doesn't lift snap blocks.
 	game.discardPile.push(card);
 	log(game, `${snapper.name} snapped ${cardLabel(card)} from ${target.name}'s card ${cardIndex + 1}`);
 	// When snapping someone else's card, the snapper gives them a card back, so
